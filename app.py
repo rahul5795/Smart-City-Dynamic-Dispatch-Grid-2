@@ -210,6 +210,10 @@ def match_location(text: str) -> str | None:
             return landmark
     return None          # never invent a map point: the dispatcher calls back instead (plan, section 3.4)
 
+GROQ_FALLBACK_MODEL = "llama-3.3-70b-versatile"     # follows the JSON format reliably
+GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "openai/gpt-oss-20b", "openai/gpt-oss-120b"]
+
+
 def groq_triage(call_text: str, api_key: str, model: str) -> dict[str, Any]:
     if Groq is None:
         raise RuntimeError("Groq package is not installed. Install requirements.txt.")
@@ -230,17 +234,46 @@ Also return severity_reason (one short phrase quoting what in the call decides t
 is_emergency=false and incident_type="Noise / prank". Severity must be 1-5.
 Call text: {call_text!r}
 """
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": "Return only a valid JSON object. This is a demo, not real emergency advice."},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.1,
-        max_tokens=350,
-        response_format={"type": "json_object"},
-    )
-    data = parse_json_response(response.choices[0].message.content or "")
+    messages = [
+        {"role": "system", "content": "Return only a valid JSON object. This is a demo, not real emergency advice."},
+        {"role": "user", "content": prompt},
+    ]
+
+    def ask(m: str, json_mode: bool) -> str:
+        extra = {}
+        if any(tag in m.lower() for tag in ("gpt-oss", "qwen3", "deepseek-r1", "reasoning")):
+            # Reasoning models "think" before answering. With a small token limit the thinking uses the whole
+            # budget, the answer comes back empty and Groq rejects it ("json_validate_failed"). Keep thinking
+            # short and give room for the answer.
+            extra["reasoning_effort"] = "low"
+            limit = 2048
+        else:
+            limit = 500
+        if json_mode:
+            extra["response_format"] = {"type": "json_object"}
+        resp = client.chat.completions.create(model=m, messages=messages, temperature=0.1,
+                                              max_completion_tokens=limit, **extra)
+        return resp.choices[0].message.content or ""
+
+    # 1) JSON mode  2) same model without JSON mode (we parse it ourselves)  3) a reliable fallback model
+    attempts = [(model, True), (model, False)]
+    if model != GROQ_FALLBACK_MODEL:
+        attempts.append((GROQ_FALLBACK_MODEL, True))
+    last_error = None
+    for m, json_mode in attempts:
+        try:
+            content = ask(m, json_mode)
+            data = parse_json_response(content)
+            data["_model_used"] = m
+            break
+        except Exception as exc:                # empty or invalid JSON, or an API error: try the next way
+            last_error = exc
+            if "invalid_api_key" in str(exc) or "401" in str(exc):
+                raise RuntimeError("the Groq API key is not valid") from exc
+            if "model_not_found" in str(exc) or "does not exist" in str(exc):
+                continue
+    else:
+        raise RuntimeError(f"Groq could not return a usable answer ({str(last_error)[:160]})")
     data["severity"] = max(1, min(5, int(data.get("severity", 3))))
     if data.get("location") not in LANDMARKS:
         data["location"] = match_location(call_text)      # None if the call names no known place
@@ -487,9 +520,12 @@ def run_triage(call_text: str) -> tuple[dict, list[tuple[str, str]]]:
     if use_groq and groq_key:
         try:
             triage = dict(cached_groq_triage(call_text.strip(), groq_key, groq_model))
+            used = triage.pop("_model_used", groq_model)
             triage["triage_method"] = "Groq AI"
+            if used != groq_model:
+                msgs.append(("info", f"{groq_model} did not return a usable answer, so {used} was used for this call."))
         except Exception as exc:
-            msgs.append(("warning", f"Groq triage failed; using rule-based fallback. Details: {exc}"))
+            msgs.append(("warning", f"Groq triage failed ({str(exc)[:200]}), so keyword rules were used for this call."))
     elif use_groq and not groq_key:
         msgs.append(("info", "Groq AI is switched on but no API key is set, so keyword rules were used."))
     if triage is None:
@@ -1036,7 +1072,9 @@ groq_key = st.sidebar.text_input(
     type="password",
     help="Or add GROQ_API_KEY to Streamlit Secrets. Do not commit your key to GitHub.",
 )
-groq_model = st.sidebar.text_input("Groq model", value="llama-3.3-70b-versatile")
+groq_model = st.sidebar.selectbox("Groq model", GROQ_MODELS, index=0, accept_new_options=True,
+                                  help="llama-3.3-70b-versatile is the most reliable for triage. Reasoning models "
+                                       "(openai/gpt-oss-…) are slower; if one fails, the app retries and then uses llama-3.3-70b-versatile.")
 st.sidebar.caption("If Groq is disabled or unavailable, rule-based triage is used.")
 triage_model = load_model(str(MODEL_FILE), MODEL_FILE.stat().st_mtime if MODEL_FILE.exists() else 0.0)
 use_model = triage_model is not None          # used automatically when triage_model.json is next to app.py
