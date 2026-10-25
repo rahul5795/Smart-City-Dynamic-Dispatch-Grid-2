@@ -845,7 +845,7 @@ VT_CSS = """
 """
 VT_JS = r"""
 export default function (component) {
-  const { data, setTriggerValue, parentElement } = component;
+  const { data, setTriggerValue, setStateValue, parentElement } = component;
   const q = (s) => parentElement.querySelector(s);
   const btn = q('.vt-btn'), lbl = q('.vt-lbl'), status = q('.vt-status'), live = q('.vt-live'), clock = q('.vt-time');
   const bars = [...parentElement.querySelectorAll('.vt-meter i')];
@@ -854,6 +854,19 @@ export default function (component) {
   const MAX_MS = 90000;
   let s = null;
   const say = (html, err) => { status.innerHTML = html; status.classList.toggle('err', !!err); };
+  const report = (extra) => { try { setStateValue('env', Object.assign(env, extra || {})); } catch (e) {} };
+  const ua = navigator.userAgent || '';
+  const env = {
+    live_typing: !!SR, microphone_api: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
+    secure: !!window.isSecureContext, in_frame: window.self !== window.top,
+    browser: navigator.brave ? 'Brave' : /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Firefox\//.test(ua) ? 'Firefox'
+             : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Other',
+    permission: 'unknown', last_error: null, last_peak: null,
+  };
+  try {
+    navigator.permissions.query({ name: 'microphone' }).then((p) => { report({ permission: p.state }); p.onchange = () => report({ permission: p.state }); })
+      .catch(() => report());
+  } catch (e) { report(); }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     say('This browser cannot use the microphone on this page. Use the recorder below.', true); btn.disabled = true; return;
   }
@@ -915,7 +928,7 @@ export default function (component) {
     };
     r.onerror = (e) => {
       if (s !== sess || e.error === 'no-speech' || e.error === 'aborted') return;
-      sess.err = e.error;
+      sess.err = e.error; report({ last_error: 'speech recognition: ' + e.error });
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed' || e.error === 'network')
         say('Live typing is not available here, but your voice is still being recorded. Tap <b>Stop</b> and it will be turned into text.');
     };
@@ -942,6 +955,7 @@ export default function (component) {
     const text = (sess.finals + (sess.interim || '')).replace(/\s+/g, ' ').trim();
     const wav = encodeWav(sess.pcm, sess.rate);
     cleanup(sess);
+    report({ last_peak: Math.round(sess.peak * 1000) / 1000, last_error: sess.err ? 'speech recognition: ' + sess.err : (text ? null : env.last_error) });
     setTriggerValue('done', { id: Date.now(), text, audio: wav, peak: sess.peak, loud: sess.loud, error: sess.err, lang });
     btn.disabled = false; btn.classList.remove('on'); lbl.textContent = 'Start speaking'; clock.textContent = '';
     if (s === sess) s = null;
@@ -950,7 +964,7 @@ export default function (component) {
     else say('Recorded. Turning your voice into text…');
   }
 
-  function fail(msg) { const sess = s; if (sess) cleanup(sess); s = null; btn.disabled = false; btn.classList.remove('on'); lbl.textContent = 'Start speaking'; say(msg, true); }
+  function fail(msg) { report({ last_error: msg.replace(/<[^>]+>/g, '') }); const sess = s; if (sess) cleanup(sess); s = null; btn.disabled = false; btn.classList.remove('on'); lbl.textContent = 'Start speaking'; say(msg, true); }
 
   function cleanup(sess) {
     cancelAnimationFrame(sess.raf); clearTimeout(sess.timer); clearInterval(sess.diag);
@@ -1010,16 +1024,77 @@ def _transcribe_into(key: str, audio: bytes, lang: str, api_key: str, whisper_mo
     st.session_state[f"{key}_result"] = res
 
 
+def voice_check(key: str, env: dict | None, api_key: str, whisper_model: str) -> None:
+    """A plain-language checklist that says exactly why speaking does not work, and how to fix it."""
+    import importlib.metadata as md
+    with st.popover("🔧 Speaking not working? Check here"):
+        rows = []
+        def row(ok, what, fix=""):
+            rows.append(("✅" if ok is True else "❌" if ok is False else "⚪", what, "" if ok is True else fix))
+        ver = md.version("streamlit")
+        row(VOICE_TYPING is not None, f"Streamlit {ver}: live voice typing " + ("available" if VOICE_TYPING else "needs 1.51 or newer"),
+            "Put `streamlit>=1.51` in requirements.txt, push it to GitHub, then Manage app → Reboot.")
+        row(sr is not None, "Free speech-to-text package (SpeechRecognition) " + ("installed" if sr else "missing"),
+            "Add `SpeechRecognition>=3.10` to requirements.txt and reboot the app.")
+        row(bool(api_key), "Groq key for Whisper speech-to-text " + ("set" if api_key else "not set"),
+            "Optional but most reliable: add GROQ_API_KEY in Manage app → Settings → Secrets.")
+        if env:
+            b = env.get("browser", "?")
+            row(env.get("secure"), "Secure page (https)", "Open the app with https://, or on your own computer at http://localhost.")
+            row(env.get("microphone_api"), "Browser can use the microphone", "Use Chrome or Edge.")
+            perm = env.get("permission", "unknown")
+            row(True if perm == "granted" else False if perm == "denied" else None, f"Microphone permission: {perm}",
+                "Click the 🔒 icon left of the address bar → Site settings → Microphone → Allow, then reload the page.")
+            row(env.get("live_typing") and b not in ("Brave",), f"{b}: live voice typing " + ("supported" if env.get("live_typing") else "not supported"),
+                "Live typing works in Chrome and Edge. Brave and Firefox block it: use the ⏺️ Record tab instead.")
+            if env.get("last_peak") is not None:
+                row(env["last_peak"] >= 0.01, f"Last recording loudness: {env['last_peak']:.3f}",
+                    "Silence was recorded: choose the right microphone (🔒 icon → Microphone), unmute it, close Zoom/Meet, speak closer.")
+            if env.get("last_error"):
+                err = env["last_error"]
+                fix = ("Your browser could not reach its speech service (company network, VPN, firewall or Brave). Use the ⏺️ Record tab."
+                       if "network" in err else
+                       "The microphone is blocked for this site: 🔒 icon → Microphone → Allow, then reload."
+                       if "not-allowed" in err else
+                       "The browser's speech service could not open the microphone: close other apps or tabs using it (Zoom, Meet), "
+                       "check the right microphone is selected, or use the ⏺️ Record tab."
+                       if "audio-capture" in err else
+                       "Use the ⏺️ Record tab, which does not depend on the browser's speech service.")
+                row(False, f"Last voice error: {err}", fix)
+        else:
+            row(None, "Browser checks appear after the voice panel has loaded once.")
+        for icon, what, fix in rows:
+            st.markdown(f"{icon} {what}" + (f"  \n<span style='opacity:.75;font-size:.9em'>→ {fix}</span>" if fix else ""), unsafe_allow_html=True)
+        if api_key and st.button("Test the Groq Whisper connection", key=f"{key}_wtest"):
+            import numpy as np
+            t = np.linspace(0, 1, 16000, endpoint=False)
+            tone = (0.2 * np.sin(2 * np.pi * 440 * t) * 32767).astype("<i2").tobytes()
+            buf = io.BytesIO()
+            with wave.open(buf, "wb") as w:
+                w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000); w.writeframes(tone)
+            try:
+                Groq(api_key=api_key).audio.transcriptions.create(file=("test.wav", buf.getvalue()), model=whisper_model)
+                st.success(f"Groq Whisper ({whisper_model}) is reachable and the key works.")
+            except Exception as exc:
+                st.error(f"Groq Whisper failed: {str(exc)[:200]}")
+
+
 def voice_recorder(key: str, label: str, api_key: str, whisper_model: str) -> dict | None:
     """Speak a report: live voice typing in the browser (words appear while you speak) plus a WAV recording
     you can listen to. If live typing is not available, the recording is turned into text on the server.
     The recording is always kept and playable, even when turning it into text fails."""
     lang_name = st.radio("Language you will speak", list(VOICE_LANGS), horizontal=True, key=f"{key}_lang")
     lang = VOICE_LANGS[lang_name]
+    env = None
     if VOICE_TYPING is not None:
-        live_tab, rec_tab = st.tabs(["🎙️ Live voice typing", "⏺️ Record, then write"])
+        # With a Groq key, recording + Whisper is the most reliable way, so it comes first.
+        names = ["🎙️ Live voice typing", "⏺️ Record, then write" + (" (Groq Whisper)" if api_key else "")]
+        tabs_ = st.tabs(names[::-1] if api_key else names)
+        live_tab, rec_tab = (tabs_[1], tabs_[0]) if api_key else (tabs_[0], tabs_[1])
         with live_tab:
-            res = VOICE_TYPING(key=f"{key}_live_{lang}", data={"lang": lang}, on_done_change=lambda: None)
+            res = VOICE_TYPING(key=f"{key}_live_{lang}", data={"lang": lang}, on_done_change=lambda: None,
+                               on_env_change=lambda: None)
+            env = getattr(res, "env", None)
         done = getattr(res, "done", None)
         if done and done.get("id") != st.session_state.get(f"{key}_live_id"):
             st.session_state[f"{key}_live_id"] = done["id"]
@@ -1034,7 +1109,8 @@ def voice_recorder(key: str, label: str, api_key: str, whisper_model: str) -> di
                 st.session_state[f"{key}_result"] = {"text": None, "audio": None, "lang": lang, "new": False,
                                                      "error": "nothing was recorded. Check the microphone and try again."}
         with rec_tab:
-            st.caption("Use this if live typing does not work in your browser. Your recording is turned into text on the server.")
+            st.caption("Press the microphone, speak, press stop. Your recording is turned into text on the server"
+                       + (" by Groq Whisper." if api_key else " (add a Groq key for Whisper, which is more reliable)."))
             audio_in = st.audio_input(label, key=f"{key}_audio")
     else:
         audio_in = st.audio_input(label, key=f"{key}_audio")
@@ -1045,6 +1121,7 @@ def voice_recorder(key: str, label: str, api_key: str, whisper_model: str) -> di
             st.session_state[f"{key}_hash"] = digest
             _transcribe_into(key, data, lang, api_key, whisper_model)
 
+    voice_check(key, env, api_key, whisper_model)
     res = st.session_state.get(f"{key}_result")
     if res:
         if res.get("text"):
