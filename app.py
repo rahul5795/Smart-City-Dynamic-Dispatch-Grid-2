@@ -14,7 +14,6 @@ from collections import Counter
 import networkx as nx
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 import matplotlib.pyplot as plt
 
 try:
@@ -35,16 +34,6 @@ st.set_page_config(
 
 st.title("🚨 Smart City Dynamic Dispatch Grid")
 
-# ----------------------- Sahayak 112 citizen app -----------------------
-# The full app is one HTML file. Put sahayak112.html next to app.py (same folder / same GitHub repo).
-SAHAYAK_FILE = Path(__file__).parent / "sahayak112.html"
-
-
-@st.cache_data(show_spinner=False)
-def load_sahayak(path: str, modified: float) -> str | None:
-    """Read the app once; the cache refreshes automatically when the file changes."""
-    p = Path(path)
-    return p.read_text(encoding="utf-8") if p.exists() else None
 st.caption("Synthetic emergency-call triage, incident prioritization, and vehicle dispatch demo")
 st.warning(
     "Prototype only: this uses synthetic data and a simplified grid. "
@@ -773,15 +762,7 @@ groq_key = st.sidebar.text_input(
 groq_model = st.sidebar.text_input("Groq model", value="llama-3.3-70b-versatile")
 st.sidebar.caption("If Groq is disabled or unavailable, rule-based triage is used.")
 triage_model = load_model(str(MODEL_FILE), MODEL_FILE.stat().st_mtime if MODEL_FILE.exists() else 0.0)
-use_model = st.sidebar.toggle("Use the learned triage model", value=triage_model is not None, disabled=triage_model is None,
-                              help="Trained and checked in notebook Part 8 (see MODEL_CARD.md). Rules keep the type; the model "
-                                   "adds a calibrated confidence, can raise severity, and flags calls for review.")
-if triage_model is None:
-    st.sidebar.caption("No triage_model.json next to app.py: rules only. Run notebook Part 8 to create it.")
-else:
-    _m = triage_model.get("metrics_hidden_test", {})
-    st.sidebar.caption(f"Model {triage_model.get('version', '')}: on the hidden test, type macro-F1 "
-                       f"{_m.get('type macro-F1', float('nan')):.2f}, severe under-triage {_m.get('severe under-triaged', float('nan')):.0%}.")
+use_model = triage_model is not None          # used automatically when triage_model.json is next to app.py
 whisper_model = st.sidebar.selectbox("Speech-to-text model (Groq)", ["whisper-large-v3-turbo", "whisper-large-v3"],
                                      help="Used for recordings when a Groq key is set. Without a key, free Google speech recognition is used.")
 st.sidebar.divider()
@@ -792,9 +773,6 @@ st.sidebar.divider()
 st.sidebar.subheader("Emergency Help")
 sim_seconds = st.sidebar.slider("Demo speed: real seconds per simulated minute", 0.5, 10.0, 2.0, step=0.5,
                                 help="Lower = help arrives faster in the demo. Travel times come from the road map.")
-st.sidebar.subheader("Sahayak 112 app")
-sahayak_height = st.sidebar.slider("App height (pixels)", 700, 2400, 1500, step=100,
-                                   help="Make it taller to see the response tracking and feedback panels without scrolling inside the app.")
 
 if "calls" not in st.session_state:
     st.session_state.calls = []
@@ -805,8 +783,7 @@ if "used_vehicle_ids" not in st.session_state:
 if "help_reports" not in st.session_state:
     st.session_state.help_reports = []
 
-tab_help, tab0, tab1, tab2, tab3 = st.tabs(["🆘 Emergency Help", "🧭 Sahayak 112 (full simulation)", "📞 Triage a call",
-                                             "🚑 Dispatch board", "🗺️ City map"])
+tab_help, tab1, tab2, tab3 = st.tabs(["🆘 Emergency Help", "📞 Triage a call", "🚑 Dispatch board", "🗺️ City map"])
 
 with tab_help:
     st.markdown(
@@ -989,34 +966,6 @@ with tab_help:
                 st.dataframe(table, width="stretch", hide_index=True)
                 st.download_button("Download help requests and feedback (CSV)", table.to_csv(index=False).encode("utf-8"),
                                    file_name="help_requests.csv", mime="text/csv")
-
-with tab0:
-    page = load_sahayak(str(SAHAYAK_FILE), SAHAYAK_FILE.stat().st_mtime if SAHAYAK_FILE.exists() else 0.0)
-    if page is None:
-        st.error("sahayak112.html was not found. Put it in the same folder as app.py "
-                 "(on Streamlit Cloud: in the same GitHub repository), then reload this page.")
-    else:
-        st.caption("Report an emergency by voice or text, track help live, then rate the response. "
-                   "This app runs its own simulation, separate from the other tabs.")
-        with st.expander("🎙️ “Tap to speak” not working? Record your report here instead", expanded=False):
-            st.caption("Some browsers and computers block voice typing inside an embedded page. This recorder uses "
-                       "Streamlit’s own microphone and turns your voice into text on the server, "
-                       + ("with Groq Whisper." if groq_key else "with free Google speech recognition (add a Groq key for Whisper, which handles Hindi and noise better).")
-                       + " Your words are then placed in the report box of the app below; check them and press Send report.")
-            heard = voice_recorder("sah", "Record your emergency report", groq_key, whisper_model)
-            if heard:
-                st.success(f"Heard ({heard['engine']}): “{heard['text']}”")
-                st.markdown("🎧 **Listen to what you recorded**")
-                st.audio(heard["audio"], format="audio/wav")
-                st.caption("The app below has reloaded with these words in the report box. A new recording replaces them.")
-        prefill = st.session_state.get("sah_result")
-        html = page
-        if prefill:
-            payload = json.dumps({k: prefill[k] for k in ("text", "lang", "engine")}, ensure_ascii=False).replace("</", "<\\/")
-            html = page.replace("/*SAHAYAK_PREFILL*/null/*END_SAHAYAK_PREFILL*/", f"/*SAHAYAK_PREFILL*/{payload}/*END_SAHAYAK_PREFILL*/")
-        components.html(html, height=sahayak_height, scrolling=True)
-        st.download_button("Download Sahayak 112 (open it in any browser, no Python needed)",
-                           page.encode("utf-8"), file_name="sahayak112.html", mime="text/html")
 
 with tab1:
     st.subheader("Triage incoming calls")
