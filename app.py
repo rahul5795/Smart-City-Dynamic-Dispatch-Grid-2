@@ -7,6 +7,9 @@ import re
 from pathlib import Path
 from typing import Any
 
+import math
+from collections import Counter
+
 import networkx as nx
 import pandas as pd
 import streamlit as st
@@ -173,7 +176,9 @@ def rule_based_triage(call_text: str) -> dict[str, Any]:
         return {"is_emergency": False, "incident_type": "Noise / prank", "severity": 1, "location": location,
                 "summary": "Looks like a prank or non-emergency call; no vehicle is needed.",
                 "severity_reason": "the caller says there is no real emergency", "people": None, "confidence": None}
-    kind = next((k for k, words in TYPE_RULES if any(w in t for w in words)), "Medical")
+    kind = next((k for k, words in TYPE_RULES if any(w in t for w in words)), None)
+    keyword_type = kind is not None
+    kind = kind or "Medical"
     hits = [(lvl, reason, next(w for w in words if w in t)) for lvl, words, reason in SEVERITY_RULES if any(w in t for w in words)]
     if hits:
         severity, reason, word = max(hits)                       # torn between levels: the higher one wins
@@ -185,7 +190,7 @@ def rule_based_triage(call_text: str) -> dict[str, Any]:
         severity, reason = 5, reason + "; several people involved"
     where = location or "an unknown location"
     summary = f"{kind} reported near {where}" + (f", about {people} people involved" if people else "") + "."
-    return {"is_emergency": True, "incident_type": kind, "severity": severity, "location": location,
+    return {"is_emergency": True, "incident_type": kind, "severity": severity, "location": location, "type_from_keywords": keyword_type,
             "summary": summary, "severity_reason": reason, "people": people, "confidence": None}
 
 
@@ -340,7 +345,7 @@ def show_triage_card(rec: dict[str, Any]) -> None:
                            + (", then edited by hand" if "edited" in rec["Source"] else ""))
         method = rec.get("triage_method", "")
         top[1].markdown(
-            f"<div style='text-align:right;margin-top:10px'><span style='background:{'#1F8A5B' if method == 'Groq AI' else '#5B6B7A'};"
+            f"<div style='text-align:right;margin-top:10px'><span style='background:{'#1F8A5B' if method == 'Groq AI' else '#1C5D99' if 'ML' in method else '#5B6B7A'};"
             f"color:#fff;border-radius:999px;padding:3px 10px;font-size:0.8rem;font-weight:600'>{method}</span></div>",
             unsafe_allow_html=True)
         if not rec.get("is_emergency"):
@@ -358,20 +363,125 @@ def show_triage_card(rec: dict[str, Any]) -> None:
         fact(c[1], "Location", rec.get("location") or "Unknown", muted=not rec.get("location"))
         fact(c[2], "People", rec.get("people") or "Not stated", muted=not rec.get("people"))
         conf = rec.get("confidence")
-        fact(c[3], "Confidence", f"{conf:.0%} (AI estimate)" if isinstance(conf, (int, float)) else "Not measured",
+        fact(c[3], "Confidence", (f"{conf:.0%} (calibrated model)" if "ML" in method else f"{conf:.0%} (AI estimate)")
+             if isinstance(conf, (int, float)) else "Not measured",
              muted=not isinstance(conf, (int, float)))
         st.markdown(f"**{SEVERITY_GUIDE.get(sev, '')}.** Why: {rec.get('severity_reason', 'not given')}.")
         st.markdown(f"**Summary:** {rec.get('summary', '')}")
         if rec.get("is_emergency") and not rec.get("location"):
             st.warning("No known landmark in this call. Call the reporter back to get the location; "
                        "it will not be dispatched or drawn on the map until then.")
-        if method != "Groq AI":
+        for note in rec.get("model_notes", []):
+            st.caption(f"🤖 {note[0].upper() + note[1:]}.")
+        if rec.get("needs_review") and rec.get("is_emergency"):
+            st.warning(f"🧑‍💼 Please check this call: "
+                       + (f"the rules say {rec['incident_type']} but the model says {rec['model_type']}." if not rec.get("model_agrees")
+                          else f"the model is only {rec['confidence']:.0%} sure."))
+        if method == "Rule-based fallback":
             st.caption("Rule-based triage: add a Groq API key in the sidebar for AI reading of messy or unclear calls.")
         if rec.get("Recording"):
             st.markdown("🎧 **Caller’s recording**")
             st.audio(rec["Recording"], format="audio/wav")
         with st.expander("Raw data (for developers)"):
             st.json({k: v for k, v in rec.items() if k not in ("Call text", "Recording")})
+            if "model_type" in rec:
+                st.caption("Model details: see MODEL_CARD.md for how it was trained and tested.")
+
+# ----------------------- Learned triage model (exported by notebook Part 8) -----------------------
+MODEL_FILE = Path(__file__).parent / "triage_model.json"
+
+
+@st.cache_resource(show_spinner=False)
+def load_model(path: str, modified: float) -> dict | None:
+    p = Path(path)
+    if not p.exists():
+        return None
+    m = json.loads(p.read_text(encoding="utf-8"))
+    for part in ("type_model", "severity_model"):                      # pre-compute arrays once
+        mm = m[part]
+        mm["_W"], mm["_b"] = [list(r) for r in mm["coef"]], list(mm["intercept"])
+    return m
+
+
+def _ngram_counts(text: str, vocab: dict, lo: int, hi: int, stats: dict | None = None) -> Counter:
+    """Exactly scikit-learn's char_wb analyzer (lowercase, words padded with spaces)."""
+    counts, total = Counter(), 0
+    for w in re.sub(r"\s\s+", " ", text.lower()).split():
+        w = f" {w} "
+        for n in range(lo, hi + 1):
+            off, grams = 0, [w[0:n]]
+            while off + n < len(w):
+                off += 1
+                grams.append(w[off:off + n])
+            total += len(grams)
+            for g in grams:
+                j = vocab.get(g)
+                if j is not None:
+                    counts[j] += 1
+            if off == 0:
+                break
+    if stats is not None:
+        stats["familiarity"] = sum(counts.values()) / total if total else 0.0
+    return counts
+
+
+def model_proba(part: dict, text: str, stats: dict | None = None) -> dict[str, float]:
+    """Sublinear TF-IDF -> L2 norm -> logistic regression -> temperature-scaled softmax."""
+    counts = _ngram_counts(text, part["vocab"], *part["ngram_range"], stats=stats)
+    x = {j: (1 + math.log(c)) * part["idf"][j] for j, c in counts.items()}
+    norm = math.sqrt(sum(v * v for v in x.values())) or 1.0
+    z = [(sum(row[j] * v for j, v in x.items()) / norm + b) / part["temperature"] for row, b in zip(part["_W"], part["_b"])]
+    mx = max(z)
+    e = [math.exp(v - mx) for v in z]
+    tot = sum(e)
+    return {c: v / tot for c, v in zip(part["classes"], e)}
+
+
+def apply_model(triage: dict, call_text: str, model: dict) -> dict:
+    """Safety hybrid from notebook Part 8: rules keep the type; the model rescues calls the rules could not type,
+    can raise severity (never lower it), gives a calibrated confidence, and flags disagreement for a human."""
+    info: dict = {}
+    tp = model_proba(model["type_model"], call_text, stats=info)
+    # Calibration only holds for wording like the training data. For unfamiliar wording, shrink confidence
+    # towards "no idea" in proportion to how unfamiliar it is, and never claim more than 99%.
+    fam = model.get("familiarity", {})
+    ref = fam.get("p05", 0.0) or 0.0
+    trust = 1.0 if not ref else min(1.0, info.get("familiarity", 0.0) / ref)
+    k = len(tp)
+    tp = {c: min(0.99, trust * p + (1 - trust) / k) for c, p in tp.items()}
+    app_p: dict[str, float] = {}
+    for cls, p in tp.items():
+        app_p[model["app_type_map"][cls]] = app_p.get(model["app_type_map"][cls], 0.0) + p
+    m_type = max(app_p, key=app_p.get)
+    thr = model.get("review_threshold", 0.7)
+    out = dict(triage)
+    notes = []
+    confident = app_p[m_type] >= thr
+    if out.get("is_emergency") and m_type != "Noise / prank" and m_type != out["incident_type"] and confident and (
+            model.get("type_leader") == "model" or not out.get("type_from_keywords")):
+        # the leader (chosen on development data in Part 8) decides; the model never dismisses a call on its own
+        notes.append(f"type from the model; the rules said {out['incident_type']}"
+                     + ("" if out.get("type_from_keywords") else " only as a default"))
+        out["incident_type"] = m_type
+    if out.get("is_emergency"):
+        sp = model_proba(model["severity_model"], call_text)
+        m_sev = int(max(sp, key=sp.get))
+        if m_sev > int(out["severity"]):
+            notes.append(f"model raised severity from {out['severity']} to {m_sev}")
+            out["severity_reason"] = f"{out.get('severity_reason', '')}; the model rates calls like this at {m_sev} ({sp[str(m_sev)]:.0%} sure)".lstrip("; ")
+            out["severity"] = m_sev
+    final = out["incident_type"] if out.get("is_emergency") else "Noise / prank"
+    out["confidence"] = round(app_p.get(final, 0.0), 3)
+    out["model_type"] = m_type
+    out["model_agrees"] = (m_type == final)
+    out["familiarity"] = round(info.get("familiarity", 0.0), 3)
+    out["needs_review"] = (not out["model_agrees"]) or out["confidence"] < thr
+    if trust < 1.0:
+        notes.append(f"unfamiliar wording ({out['familiarity']:.0%} of its patterns seen in training), so confidence was lowered")
+    out["model_notes"] = notes
+    out["triage_method"] = "Rules + ML model"
+    return out
+
 
 # ----------------------- Speech to text (works even when browser voice typing does not) -----------------------
 VOICE_LANGS = {"English (India)": "en-IN", "हिन्दी (Hindi)": "hi-IN"}
@@ -444,6 +554,16 @@ groq_key = st.sidebar.text_input(
 )
 groq_model = st.sidebar.text_input("Groq model", value="llama-3.3-70b-versatile")
 st.sidebar.caption("If Groq is disabled or unavailable, rule-based triage is used.")
+triage_model = load_model(str(MODEL_FILE), MODEL_FILE.stat().st_mtime if MODEL_FILE.exists() else 0.0)
+use_model = st.sidebar.toggle("Use the learned triage model", value=triage_model is not None, disabled=triage_model is None,
+                              help="Trained and checked in notebook Part 8 (see MODEL_CARD.md). Rules keep the type; the model "
+                                   "adds a calibrated confidence, can raise severity, and flags calls for review.")
+if triage_model is None:
+    st.sidebar.caption("No triage_model.json next to app.py: rules only. Run notebook Part 8 to create it.")
+else:
+    _m = triage_model.get("metrics_hidden_test", {})
+    st.sidebar.caption(f"Model {triage_model.get('version', '')}: on the hidden test, type macro-F1 "
+                       f"{_m.get('type macro-F1', float('nan')):.2f}, severe under-triage {_m.get('severe under-triaged', float('nan')):.0%}.")
 whisper_model = st.sidebar.selectbox("Speech-to-text model (Groq)", ["whisper-large-v3-turbo", "whisper-large-v3"],
                                      help="Used for recordings when a Groq key is set. Without a key, free Google speech recognition is used.")
 st.sidebar.divider()
@@ -543,6 +663,8 @@ with tab1:
             if triage is None:
                 triage = rule_based_triage(call_text)
                 triage["triage_method"] = "Rule-based fallback"
+                if use_model and triage_model is not None:
+                    triage = apply_model(triage, call_text, triage_model)
             record = {
                 "Call ID": f"CALL-{len(st.session_state.calls) + 1:03d}",
                 "Call text": call_text.strip(),
