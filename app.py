@@ -1,5 +1,7 @@
+import base64
 import hashlib
 import io
+import wave
 import json
 import os
 import random
@@ -697,12 +699,55 @@ WHISPER_HINT = ("Emergency call in an Indian city. Words that may appear: fire, 
                 "market, mandir, masjid, gurudwara, chowk, thana.")
 
 
+def wav_stats(wav: bytes) -> dict:
+    """Duration and loudness of a WAV recording, to tell 'silent microphone' apart from 'not understood'."""
+    import numpy as np
+    try:
+        with wave.open(io.BytesIO(wav)) as w:
+            ch, width, rate, n = w.getnchannels(), w.getsampwidth(), w.getframerate(), w.getnframes()
+            raw = w.readframes(n)
+        if width != 2:
+            return {"duration": n / rate if rate else 0.0, "peak": 1.0, "rms": 1.0, "ok": True}
+        x = np.frombuffer(raw, dtype="<i2").astype(np.float32)
+        if ch > 1:
+            x = x.reshape(-1, ch).mean(axis=1)
+        x /= 32768.0
+        return {"duration": len(x) / rate, "peak": float(np.abs(x).max()) if len(x) else 0.0,
+                "rms": float(np.sqrt(np.mean(x * x))) if len(x) else 0.0, "ok": True}
+    except Exception:
+        return {"duration": 0.0, "peak": 1.0, "rms": 1.0, "ok": False}
+
+
+def clean_wav(wav: bytes) -> bytes:
+    """Mono, 16-bit, and turned up if it was recorded quietly: speech services understand it much better."""
+    import numpy as np
+    try:
+        with wave.open(io.BytesIO(wav)) as w:
+            ch, width, rate, raw = w.getnchannels(), w.getsampwidth(), w.getframerate(), w.readframes(w.getnframes())
+        if width != 2:
+            return wav
+        x = np.frombuffer(raw, dtype="<i2").astype(np.float32)
+        if ch > 1:
+            x = x.reshape(-1, ch).mean(axis=1)
+        peak = float(np.abs(x).max()) if len(x) else 0.0
+        if 0 < peak < 20000:
+            x *= min(8.0, 26000.0 / peak)                    # gentle gain, at most 8x
+        out = io.BytesIO()
+        with wave.open(out, "wb") as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate)
+            w.writeframes(np.clip(x, -32768, 32767).astype("<i2").tobytes())
+        return out.getvalue()
+    except Exception:
+        return wav
+
+
 def transcribe_audio(wav: bytes, lang: str, api_key: str, whisper_model: str) -> tuple[str, str]:
     """Turn a WAV recording into text. Groq Whisper first (if a key is set), then free Google speech.
 
     Returns (text, engine name). Raises RuntimeError with a readable reason when nothing worked.
     """
     problems = []
+    wav = clean_wav(wav)
     if api_key and Groq is not None:
         try:
             result = Groq(api_key=api_key).audio.transcriptions.create(
@@ -724,30 +769,262 @@ def transcribe_audio(wav: bytes, lang: str, api_key: str, whisper_model: str) ->
         except Exception as exc:
             problems.append(f"the free speech service failed ({str(exc)[:120]})")
     else:
-        problems.append("the SpeechRecognition package is not installed")
+        problems.append("the SpeechRecognition package is not installed (add it to requirements.txt)")
     raise RuntimeError("; ".join(problems))
 
 
-def voice_recorder(key: str, label: str, api_key: str, whisper_model: str) -> dict | None:
-    """Record with Streamlit's own microphone widget and transcribe each new recording once."""
-    lang_name = st.radio("Language you will speak", list(VOICE_LANGS), horizontal=True, key=f"{key}_lang")
-    audio = st.audio_input(label, key=f"{key}_audio")
-    if audio is None:
-        return st.session_state.get(f"{key}_result")
-    data = audio.getvalue()
-    digest = hashlib.sha1(data).hexdigest()
-    if st.session_state.get(f"{key}_hash") != digest:          # a new recording: transcribe it once
-        st.session_state[f"{key}_hash"] = digest
+# ---- Live voice typing: runs in the browser page itself (not an iframe), so the microphone and the browser's
+# ---- own speech recognition work. It also records the voice as a WAV file, so it can always be played back and,
+# ---- if live typing is unavailable, turned into text on the server.
+VT_HTML = """
+<div class="vt">
+  <div class="vt-row">
+    <button class="vt-btn" type="button"><span class="vt-dot"></span><span class="vt-lbl">Start speaking</span></button>
+    <div class="vt-meter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <span class="vt-time"></span>
+  </div>
+  <div class="vt-status" aria-live="polite">Tap <b>Start speaking</b>, allow the microphone, say what happened and where, then tap <b>Stop</b>.</div>
+  <div class="vt-live"></div>
+</div>
+"""
+VT_CSS = """
+.vt{font-family:inherit;color:var(--st-text-color,inherit)}
+.vt-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.vt-btn{display:inline-flex;align-items:center;gap:8px;border:0;border-radius:999px;padding:10px 18px;font-size:15px;font-weight:700;
+  cursor:pointer;background:#D62839;color:#fff;box-shadow:0 6px 16px -6px rgba(214,40,57,.6)}
+.vt-btn:disabled{opacity:.6;cursor:wait}
+.vt-btn.on{background:#15202B}
+.vt-dot{width:10px;height:10px;border-radius:50%;background:#fff}
+.vt-btn.on .vt-dot{background:#D62839;animation:vtp 1s infinite}
+@keyframes vtp{50%{opacity:.25}}
+.vt-meter{display:flex;gap:3px;align-items:flex-end;height:26px}
+.vt-meter i{width:5px;height:4px;border-radius:3px;background:#D62839;transition:height .08s linear}
+.vt-time{font-variant-numeric:tabular-nums;opacity:.7;font-size:13px}
+.vt-status{margin-top:8px;font-size:13.5px;opacity:.85}
+.vt-status.err{color:#E5484D;opacity:1;font-weight:600}
+.vt-live{margin-top:8px;min-height:22px;font-size:15px;line-height:1.45;padding:8px 10px;border-radius:10px;
+  background:rgba(128,128,128,.12);white-space:pre-wrap}
+.vt-live:empty{display:none}
+@media (prefers-reduced-motion:reduce){.vt-btn.on .vt-dot{animation:none}}
+"""
+VT_JS = r"""
+export default function (component) {
+  const { data, setTriggerValue, parentElement } = component;
+  const q = (s) => parentElement.querySelector(s);
+  const btn = q('.vt-btn'), lbl = q('.vt-lbl'), status = q('.vt-status'), live = q('.vt-live'), clock = q('.vt-time');
+  const bars = [...parentElement.querySelectorAll('.vt-meter i')];
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const lang = (data && data.lang) || 'en-IN';
+  const MAX_MS = 90000;
+  let s = null;
+  const say = (html, err) => { status.innerHTML = html; status.classList.toggle('err', !!err); };
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    say('This browser cannot use the microphone on this page. Use the recorder below.', true); btn.disabled = true; return;
+  }
+  if (!SR) say('Live typing needs Chrome or Edge. Your voice will still be recorded and turned into text after you stop.');
+  btn.onclick = () => (s ? stop() : start());
+
+  async function start() {
+    s = { finals: '', interim: '', peak: 0, loud: 0, stopped: false, started: Date.now(), pcm: [], rate: 48000, err: null };
+    const sess = s;
+    btn.classList.add('on'); lbl.textContent = 'Stop'; live.textContent = ''; say('Listening… speak now.');
+    try {
+      sess.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    } catch (e) {
+      const blocked = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
+      fail(blocked ? 'The microphone is blocked. Click the 🔒 icon left of the address bar, allow <b>Microphone</b>, then reload the page.'
+                   : 'No microphone was found, or another app (Zoom, Meet) is using it.');
+      return;
+    }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    sess.ctx = new AC(); if (sess.ctx.state === 'suspended') { try { await sess.ctx.resume(); } catch (e) {} }
+    sess.rate = sess.ctx.sampleRate;
+    const src = sess.ctx.createMediaStreamSource(sess.stream);
+    const an = sess.ctx.createAnalyser(); an.fftSize = 1024; src.connect(an);
+    // capture raw sound for the WAV recording
+    const proc = sess.ctx.createScriptProcessor(4096, 1, 1), mute = sess.ctx.createGain(); mute.gain.value = 0;
+    proc.onaudioprocess = (e) => { if (!sess.stopped) sess.pcm.push(new Float32Array(e.inputBuffer.getChannelData(0))); };
+    src.connect(proc); proc.connect(mute); mute.connect(sess.ctx.destination); sess.proc = proc;
+    const buf = new Float32Array(an.fftSize);
+    const loop = () => {
+      if (s !== sess || !sess.ctx) return;
+      an.getFloatTimeDomainData(buf); let sum = 0; for (const x of buf) sum += x * x;
+      const rms = Math.sqrt(sum / buf.length); sess.peak = Math.max(sess.peak, rms); if (rms > 0.02) sess.loud += 16;
+      const l = Math.min(1, rms * 12);
+      bars.forEach((b, k) => { const w = 1 - Math.abs(k - 4) / 5; b.style.height = (4 + 22 * l * w) + 'px'; });
+      const sec = Math.floor((Date.now() - sess.started) / 1000); clock.textContent = `0:${String(sec).padStart(2, '0')}`;
+      sess.raf = requestAnimationFrame(loop);
+    };
+    loop();
+    if (SR) listen(sess);
+    sess.timer = setTimeout(() => { if (s === sess) stop(); }, MAX_MS);
+    sess.diag = setInterval(() => {
+      if (s !== sess || sess.finals || sess.interim) return;
+      const el = Date.now() - sess.started;
+      if (el > 5000 && sess.peak < 0.01) say('No sound is reaching the microphone. Check the 🔒 icon → <b>Microphone</b> shows the right device, and that it is not muted.', true);
+      else if (el > 7000 && sess.loud > 500 && SR) say('I can hear you but live typing has no words yet. Keep talking: your voice is recorded and will be turned into text when you stop.');
+    }, 1500);
+  }
+
+  function listen(sess) {
+    let r;
+    try { r = new SR(); } catch (e) { return; }
+    sess.rec = r; r.lang = lang; r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
+    r.onresult = (e) => {
+      if (s !== sess) return;
+      let fin = '', int = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) { const x = e.results[i]; if (x.isFinal) fin += x[0].transcript + ' '; else int += x[0].transcript; }
+      sess.finals += fin; sess.interim = int; live.textContent = (sess.finals + int).trim();
+      say('Hearing you… tap <b>Stop</b> when you have finished.');
+    };
+    r.onerror = (e) => {
+      if (s !== sess || e.error === 'no-speech' || e.error === 'aborted') return;
+      sess.err = e.error;
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed' || e.error === 'network')
+        say('Live typing is not available here, but your voice is still being recorded. Tap <b>Stop</b> and it will be turned into text.');
+    };
+    r.onend = () => {
+      if (s !== sess) { return; }
+      const hard = ['not-allowed', 'service-not-allowed', 'network', 'audio-capture'].includes(sess.err);
+      if (!sess.stopped && !hard) { setTimeout(() => { if (s === sess && !sess.stopped) listen(sess); }, 120); return; }   // browser paused: keep listening
+      sess.recDone = true; maybeFinish(sess);
+    };
+    try { r.start(); } catch (e) {}
+  }
+
+  function stop() {
+    if (!s) return;
+    const sess = s; sess.stopped = true; btn.disabled = true; lbl.textContent = 'Finishing…';
+    if (sess.rec) { try { sess.rec.stop(); } catch (e) { sess.recDone = true; } } else sess.recDone = true;
+    setTimeout(() => { sess.recDone = true; maybeFinish(sess); }, 2000);        // never wait forever for the browser
+    maybeFinish(sess);
+  }
+
+  function maybeFinish(sess) {
+    if (!sess.stopped || !sess.recDone || sess.sent) return;
+    sess.sent = true;
+    const text = (sess.finals + (sess.interim || '')).replace(/\s+/g, ' ').trim();
+    const wav = encodeWav(sess.pcm, sess.rate);
+    cleanup(sess);
+    setTriggerValue('done', { id: Date.now(), text, audio: wav, peak: sess.peak, loud: sess.loud, error: sess.err, lang });
+    btn.disabled = false; btn.classList.remove('on'); lbl.textContent = 'Start speaking'; clock.textContent = '';
+    if (s === sess) s = null;
+    if (text) say('Done. Your words are in the box below. You can listen to the recording too.');
+    else if (sess.peak < 0.01) say('No sound was recorded. Check your microphone and try again.', true);
+    else say('Recorded. Turning your voice into text…');
+  }
+
+  function fail(msg) { const sess = s; if (sess) cleanup(sess); s = null; btn.disabled = false; btn.classList.remove('on'); lbl.textContent = 'Start speaking'; say(msg, true); }
+
+  function cleanup(sess) {
+    cancelAnimationFrame(sess.raf); clearTimeout(sess.timer); clearInterval(sess.diag);
+    try { sess.proc && (sess.proc.onaudioprocess = null); } catch (e) {}
+    try { sess.stream && sess.stream.getTracks().forEach((t) => t.stop()); } catch (e) {}
+    try { sess.ctx && sess.ctx.close(); } catch (e) {}
+    sess.ctx = null; bars.forEach((b) => (b.style.height = '4px'));
+  }
+
+  // 16 kHz mono 16-bit WAV, averaged down from the microphone rate (a simple anti-alias filter)
+  function encodeWav(chunks, rate) {
+    let n = 0; for (const c of chunks) n += c.length;
+    if (!n) return null;
+    const all = new Float32Array(n); let o = 0; for (const c of chunks) { all.set(c, o); o += c.length; }
+    const target = 16000, ratio = rate / target, len = Math.floor(n / ratio), pcm = new Int16Array(len);
+    for (let i = 0; i < len; i++) {
+      const a = Math.floor(i * ratio), b = Math.min(n, Math.floor((i + 1) * ratio)); let sum = 0;
+      for (let j = a; j < b; j++) sum += all[j];
+      const v = Math.max(-1, Math.min(1, sum / Math.max(1, b - a))); pcm[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
+    }
+    const buf = new ArrayBuffer(44 + pcm.length * 2), dv = new DataView(buf);
+    const ws = (p, t) => { for (let i = 0; i < t.length; i++) dv.setUint8(p + i, t.charCodeAt(i)); };
+    ws(0, 'RIFF'); dv.setUint32(4, 36 + pcm.length * 2, true); ws(8, 'WAVE'); ws(12, 'fmt ');
+    dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true); dv.setUint32(24, target, true);
+    dv.setUint32(28, target * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); ws(36, 'data');
+    dv.setUint32(40, pcm.length * 2, true); new Int16Array(buf, 44).set(pcm);
+    let bin = ''; const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  }
+
+  return () => { if (s) { s.stopped = true; try { s.rec && s.rec.stop(); } catch (e) {} cleanup(s); s = null; } };
+}
+"""
+try:
+    VOICE_TYPING = st.components.v2.component("sahayak_voice_typing", html=VT_HTML, css=VT_CSS, js=VT_JS)
+except Exception:                         # Streamlit older than 1.51: only the recorder below is offered
+    VOICE_TYPING = None
+
+
+def _transcribe_into(key: str, audio: bytes, lang: str, api_key: str, whisper_model: str) -> None:
+    """Server-side speech-to-text for a recording; the recording is kept even when this fails."""
+    stats = wav_stats(audio)
+    res = {"text": None, "lang": lang, "engine": None, "new": False, "audio": audio, "mime": "audio/wav",
+           "duration": stats["duration"], "error": None}
+    if stats["ok"] and stats["duration"] < 0.6:
+        res["error"] = "the recording is too short. Hold on and speak for a few seconds."
+    elif stats["ok"] and stats["peak"] < 0.01:
+        res["error"] = "the recording is silent. Check that the right microphone is selected and not muted."
+    else:
         with st.spinner("Turning your voice into text…"):
             try:
-                text, engine = transcribe_audio(data, VOICE_LANGS[lang_name], api_key, whisper_model)
-                st.session_state[f"{key}_result"] = {"text": text, "lang": VOICE_LANGS[lang_name], "engine": engine, "new": True,
-                                                     "audio": data}
+                res["text"], res["engine"] = transcribe_audio(audio, lang, api_key, whisper_model)
+                res["new"] = True
             except RuntimeError as exc:
-                st.session_state[f"{key}_result"] = None
-                st.error(f"Could not turn the recording into text: {exc}. You can record again or type instead.")
-                return None
-    return st.session_state.get(f"{key}_result")
+                res["error"] = str(exc)
+    st.session_state[f"{key}_result"] = res
+
+
+def voice_recorder(key: str, label: str, api_key: str, whisper_model: str) -> dict | None:
+    """Speak a report: live voice typing in the browser (words appear while you speak) plus a WAV recording
+    you can listen to. If live typing is not available, the recording is turned into text on the server.
+    The recording is always kept and playable, even when turning it into text fails."""
+    lang_name = st.radio("Language you will speak", list(VOICE_LANGS), horizontal=True, key=f"{key}_lang")
+    lang = VOICE_LANGS[lang_name]
+    if VOICE_TYPING is not None:
+        live_tab, rec_tab = st.tabs(["🎙️ Live voice typing", "⏺️ Record, then write"])
+        with live_tab:
+            res = VOICE_TYPING(key=f"{key}_live_{lang}", data={"lang": lang}, on_done_change=lambda: None)
+        done = getattr(res, "done", None)
+        if done and done.get("id") != st.session_state.get(f"{key}_live_id"):
+            st.session_state[f"{key}_live_id"] = done["id"]
+            audio = base64.b64decode(done["audio"]) if done.get("audio") else None
+            if done.get("text"):
+                st.session_state[f"{key}_result"] = {"text": done["text"], "lang": lang, "engine": "live voice typing",
+                                                     "new": True, "audio": audio, "mime": "audio/wav",
+                                                     "duration": wav_stats(audio)["duration"] if audio else 0, "error": None}
+            elif audio:
+                _transcribe_into(key, audio, lang, api_key, whisper_model)
+            else:
+                st.session_state[f"{key}_result"] = {"text": None, "audio": None, "lang": lang, "new": False,
+                                                     "error": "nothing was recorded. Check the microphone and try again."}
+        with rec_tab:
+            st.caption("Use this if live typing does not work in your browser. Your recording is turned into text on the server.")
+            audio_in = st.audio_input(label, key=f"{key}_audio")
+    else:
+        audio_in = st.audio_input(label, key=f"{key}_audio")
+    if audio_in is not None:
+        data = audio_in.getvalue()
+        digest = hashlib.sha1(data).hexdigest()
+        if st.session_state.get(f"{key}_hash") != digest:      # a new recording: transcribe it once
+            st.session_state[f"{key}_hash"] = digest
+            _transcribe_into(key, data, lang, api_key, whisper_model)
+
+    res = st.session_state.get(f"{key}_result")
+    if res:
+        if res.get("text"):
+            st.success(f"✍️ Written ({res['engine']}): “{res['text']}”")
+        elif res.get("error"):
+            st.error(f"Could not turn your voice into text: {res['error']}")
+        if res.get("audio"):
+            dur = res.get("duration") or 0
+            st.markdown(f"🎧 **Listen to what you recorded**" + (f" ({dur:.1f} s)" if dur else ""))
+            st.audio(res["audio"], format=res.get("mime", "audio/wav"))
+            if not res.get("text") and st.button("Try turning it into text again", key=f"{key}_retry"):
+                _transcribe_into(key, res["audio"], lang, api_key, whisper_model)
+                st.rerun()
+        if not res.get("text"):
+            st.caption("You can always type the report instead.")
+    return res
 
 
 # ----------------------- Sidebar -----------------------
@@ -807,12 +1084,9 @@ with tab_help:
             st.markdown("#### 3. Tell us more")
             with st.expander("🎙️ Speak instead of typing", expanded=False):
                 h_voice = voice_recorder("help", "Record what is happening", groq_key, whisper_model)
-                if h_voice and h_voice.get("new"):
+                if h_voice and h_voice.get("new") and h_voice.get("text"):
                     st.session_state.help_text = h_voice["text"]
                     h_voice["new"] = False
-                if h_voice:
-                    st.success(f"Heard ({h_voice['engine']}): “{h_voice['text']}”")
-                    st.audio(h_voice["audio"], format="audio/wav")
             h_text = st.text_area("What is happening? (optional)", key="help_text", height=80,
                                   placeholder="For example: smoke from the second floor, my neighbour is still inside")
             h_signs = st.pills("Danger signs", list(DANGER_SIGNS), selection_mode="multi", key="help_signs")
@@ -845,7 +1119,7 @@ with tab_help:
                     triage["people"] = int(h_people)
                 call_id = f"CALL-{len(st.session_state.calls) + 1:03d}"
                 ref = f"HELP-{len(st.session_state.help_reports) + 1:03d}"
-                voiced = bool(h_voice) and (h_text or "").strip() == h_voice.get("text", "")
+                voiced = bool(h_voice) and bool(h_voice.get("text")) and (h_text or "").strip() == h_voice.get("text", "")
                 rec_ = add_call(report_text, triage, "Emergency Help", h_voice["engine"] if voiced else None,
                                 h_voice["audio"] if voiced else None)
                 rec_["help_ref"] = ref
@@ -980,10 +1254,10 @@ with tab1:
                 st.session_state.last_sample = sample
                 st.session_state.call_text = sample
                 st.session_state.call_audio = st.session_state.voice_text = None
-            with st.expander("🎙️ Speak your complaint instead of typing", expanded=False):
+            with st.expander("🎙️ Speak your complaint instead of typing", expanded=True):
                 auto = st.checkbox("Triage automatically as soon as my words are written", value=True, key="tri_auto")
                 spoken = voice_recorder("tri", "Record your complaint", groq_key, whisper_model)
-                if spoken and spoken.get("new"):
+                if spoken and spoken.get("new") and spoken.get("text"):
                     st.session_state.call_text = spoken["text"]
                     st.session_state.voice_text = spoken["text"]
                     st.session_state.call_engine = spoken["engine"]
@@ -991,9 +1265,7 @@ with tab1:
                     spoken["new"] = False
                     if auto:
                         st.session_state.auto_triage = True
-                if spoken:
-                    st.success(f"Heard ({spoken['engine']}): “{spoken['text']}”")
-                    st.audio(spoken["audio"], format="audio/wav")
+                if spoken and spoken.get("text"):
                     if spoken["lang"] == "hi-IN" and not groq_key:
                         st.caption("Keyword rules understand English best. Add a Groq key for AI triage of Hindi calls.")
             with st.form("triage_form", border=False):
