@@ -107,6 +107,11 @@ h3{font-size:14px;font-weight:700;margin:0;display:flex;align-items:center;gap:8
 .voice-help{font-size:12.5px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin-top:8px;text-align:left}
 .voice-help b{display:block;margin-bottom:3px}
 .voice-help ol{margin:4px 0 0;padding-left:18px}
+.playback{display:grid;gap:6px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.playback .ph{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;font-weight:650}
+.playback audio,.calls audio,.track audio{width:100%;height:36px}
+.linkbtn{border:0;background:none;color:var(--muted);font-size:12.5px;text-decoration:underline;padding:0}
+.calls .voice{font-size:12px;color:var(--info);font-weight:650;margin-top:4px;display:block}
 textarea{width:100%;min-height:96px;resize:vertical;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface-2);font-size:15px}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 11px;font-size:13px;font-weight:600;display:inline-flex;gap:6px;align-items:center}
@@ -415,8 +420,12 @@ body:not([data-role="control"]) .ctl-only{display:none !important}
         <div class="meter" id="meter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
         <p class="voice-state" id="voiceState" aria-live="polite"></p>
         <div class="voice-help" id="voiceHelp" hidden></div>
-        <p class="privacy">Your voice becomes text in this browser. No audio is kept.</p>
+        <p class="privacy">Your recording stays in this browser so you and the control room can listen to it. It is never uploaded.</p>
         <div class="stack">
+          <div class="playback" id="playback" hidden>
+            <div class="ph"><span>🎧 Listen to what you recorded</span><button class="linkbtn" id="recDel">Delete recording</button></div>
+            <audio id="recAudio" controls preload="metadata"></audio>
+          </div>
           <label class="sr" for="reportText">Report text</label>
           <textarea id="reportText" placeholder="Or type here, for example: “Fire at Sunrise Mall, two people stuck on the second floor”"></textarea>
           <div class="chips" aria-label="Add the type of emergency">
@@ -459,6 +468,7 @@ body:not([data-role="control"]) .ctl-only{display:none !important}
         </ol>
         <dl class="facts" id="facts"></dl>
         <p class="hint" style="margin-top:10px" id="viaTxt"></p>
+        <div id="trackAudio"></div>
         <div id="fbBox"></div>
         <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
           <button class="btn" id="addInfoBtn">Add more details</button>
@@ -574,7 +584,7 @@ body:not([data-role="control"]) .ctl-only{display:none !important}
 <dialog id="drawer" aria-labelledby="dTitle">
   <div class="dhead"><div class="sev" id="dSev"></div><div style="flex:1"><h2 id="dTitle"></h2><span class="hint" id="dSub"></span></div>
     <button class="btn" id="dClose">Close</button></div>
-  <div class="dbody" id="dBody"><div id="dCtl"></div><div class="dinfo" id="dInfo"></div></div>
+  <div class="dbody" id="dBody"><div id="dCtl"></div><div class="dinfo" id="dInfo"></div><div class="dinfo" id="dCalls"></div></div>
 </dialog>
 <div class="toast" id="toast" role="status"></div>
 
@@ -871,9 +881,9 @@ const jacc = (a, b) => { const A = new Set(norm(a).trim().split(" ")), B = new S
 
 function say(text, kind = "dispatch") { S.log.unshift({ t: S.now, text, kind }); S.log.length = Math.min(S.log.length, 60); }
 
-function handleCall(text, f, loc, source) {
+function handleCall(text, f, loc, source, audio = null) {
   S.calls++;
-  const call = { id: "C" + String(S.nextCall++).padStart(3, "0"), t: S.now, text, source, via: f.via };
+  const call = { id: "C" + String(S.nextCall++).padStart(3, "0"), t: S.now, text, source, via: f.via, audio };
   const entry = { ...call, out: "", cls: "" };
   S.feed.unshift(entry); S.feed.length = Math.min(S.feed.length, 40);
   if (!f.relevant) { S.ignored++; entry.out = "Ignored: not an emergency"; entry.cls = "ign"; return null; }
@@ -1344,6 +1354,9 @@ function renderTrack() {
     lastStage = stage;
   }
   renderLocAsk(inc);
+  const mineAudio = inc.calls.filter(c => c.audio);
+  setHTML($("#trackAudio"), mineAudio.length ? `<div class="playback" style="margin-top:12px"><div class="ph"><span>🎧 Your recorded report${mineAudio.length > 1 ? "s" : ""}</span></div>`
+    + mineAudio.map(c => `<audio controls preload="metadata" src="${c.audio}"></audio>`).join("") + `</div>` : "");
   renderFeedbackForm(inc);
 }
 function renderLocAsk(inc) {
@@ -1636,6 +1649,17 @@ function meterStart() {
       an.fftSize = 512; src.connect(an);
       const buf = new Float32Array(an.fftSize), bars = [...document.querySelectorAll("#meter i")];
       vs.audio = { stream, ctx };
+      // keep a copy of the voice so the caller (and the control room) can listen to it
+      if (window.MediaRecorder) {
+        try {
+          const type = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"].find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t));
+          const mr = new MediaRecorder(stream, type ? { mimeType: type } : undefined), chunks = [];
+          mr.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+          mr.onstop = () => { if (chunks.length) setRecording(new Blob(chunks, { type: mr.mimeType || type || "audio/webm" })); };
+          mr.start(250);
+          vs.recorder = mr;
+        } catch (e) { /* recording is optional: voice typing still works */ }
+      }
       const loop = () => {
         if (!vs || !vs.audio) return;
         an.getFloatTimeDomainData(buf);
@@ -1652,11 +1676,27 @@ function meterStart() {
     .catch(err => { if (vs) vs.meterError = err && err.name; });
 }
 function meterStop() {
+  if (vs && vs.recorder && vs.recorder.state !== "inactive") { try { vs.recorder.stop(); } catch (e) {} }
   if (vs && vs.audio) { vs.audio.stream.getTracks().forEach(t => t.stop()); vs.audio = null; }
   if (vs && vs.ctx) { try { vs.ctx.close(); } catch (e) {} vs.ctx = null; }
   document.querySelectorAll("#meter i").forEach(bar => bar.style.height = "4px");
   $("#meter").classList.remove("on");
 }
+/* The latest recording for the report being written; attached to the call when it is sent. */
+let currentRec = null;
+function setRecording(blob) {
+  if (currentRec) URL.revokeObjectURL(currentRec.url);
+  currentRec = { url: URL.createObjectURL(blob), size: blob.size, type: blob.type };
+  $("#recAudio").src = currentRec.url;
+  $("#playback").hidden = false;
+}
+function clearRecording(revoke = true) {
+  if (currentRec && revoke) URL.revokeObjectURL(currentRec.url);
+  currentRec = null;
+  $("#recAudio").removeAttribute("src"); $("#recAudio").load();
+  $("#playback").hidden = true;
+}
+$("#recDel").addEventListener("click", () => { clearRecording(); voiceMsg("Recording deleted. Your text is still in the box."); });
 function voiceHelp(kind) {
   const box = $("#voiceHelp");
   const tips = {
@@ -1775,7 +1815,9 @@ async function sendReport() {
   if (hint) loc = { place: hint, node: PLACE[hint].node, conf: "selected" };
   else if (f.landmark) loc = { place: f.landmark, node: PLACE[f.landmark].node, conf: "high" };
   else loc = matchLocation(text);
-  const inc = handleCall(text, f, loc, usedVoice ? "voice" : "typed");
+  const audio = currentRec ? currentRec.url : null;
+  const inc = handleCall(text, f, loc, usedVoice ? "voice" : "typed", audio);
+  if (audio) clearRecording(false);                           // the call keeps the recording; the form is ready for the next one
   inc.mine = true; if (!S.mine.includes(inc.id)) S.mine.push(inc.id);
   if (reportStart != null) { S.reportTimes.push((performance.now() - reportStart) / 1000); reportStart = null; }
   S.tracked = inc.id; lastStage = -1; lastSpoken = "";
@@ -1789,6 +1831,7 @@ async function sendReport() {
 $("#sendBtn").addEventListener("click", sendReport);
 $("#reportText").addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) sendReport(); });
 $("#newReportBtn").addEventListener("click", () => {
+  if (currentRec) clearRecording();
   S.tracked = null; $("#track").classList.remove("on"); $("#reportForm").hidden = false;
   $("#reportText").value = ""; $("#lmSel").value = ""; usedVoice = false; voiceMsg(""); render();
 });
@@ -1831,9 +1874,11 @@ function fillDrawer(id) {
       <dt>Timeline</dt><dd>reported ${fmtClock(inc.created)}${inc.assignedAt != null ? `, assigned +${inc.assignedAt - inc.created}m` : ""}${inc.firstArrival != null ? `, arrived +${inc.firstArrival - inc.created}m` : ""}${inc.closedAt != null ? `, closed +${inc.closedAt - inc.created}m` : ""}</dd>
       <dt>Target</dt><dd>${targetFor(inc)} min${inc.firstArrival != null ? (inc.firstArrival - inc.created <= targetFor(inc) ? ", met" : ", missed") : ""}</dd>
       ${inc.feedback ? `<dt>Feedback</dt><dd>${"★".repeat(inc.feedback.rating)} ${esc((inc.feedback.tags || []).join(", "))}${inc.feedback.comment ? ` “${esc(inc.feedback.comment)}”` : ""}</dd>` : ""}</dl>
-    <div><h3>Joined calls (${inc.calls.length})</h3><ul class="calls">${inc.calls.map(c => `<li><span class="hint">${fmtClock(c.t)} ${c.source}</span><br>“${esc(c.text)}”</li>`).join("")}</ul></div>
     <div><h3>Where callers disagree</h3>${inc.contradictions.length ? `<ul class="warnlist">${inc.contradictions.map(c => `<li>${esc(c)}</li>`).join("")}</ul>` : `<p class="hint">No disagreements.</p>`}</div>
     ${inc.notes.length ? `<div><h3>Dispatcher notes</h3><ul class="warnlist">${inc.notes.map(n => `<li>${fmtClock(n.t)} ${esc(n.text)}</li>`).join("")}</ul></div>` : ""}`);
+  // rebuilt only when the list of calls changes, so a recording keeps playing while the rest updates
+  setHTML($("#dCalls"), `<div><h3>Joined calls (${inc.calls.length})</h3><ul class="calls">${inc.calls.map(c => `<li><span class="hint">${fmtClock(c.t)} ${c.source}</span><br>“${esc(c.text)}”`
+    + (c.audio ? `<span class="voice">🎧 Caller’s recording</span><audio controls preload="metadata" src="${c.audio}"></audio>` : "") + `</li>`).join("")}</ul></div>`);
 }
 $("#dClose").addEventListener("click", () => $("#drawer").close());
 $("#drawer").addEventListener("close", () => drawerId = null);
