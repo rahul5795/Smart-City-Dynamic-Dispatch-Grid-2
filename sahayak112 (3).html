@@ -1,0 +1,2093 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sahayak 112: Smart City Emergency Dispatch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=Noto+Sans+Devanagari:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#EDF0F3; --surface:#FFFFFF; --surface-2:#F6F8FA; --ink:#15202B; --muted:#5B6B7A; --line:#D7DEE5;
+  --siren:#D62839; --siren-ink:#FFFFFF; --siren-soft:#FBE3E6;
+  --amber:#C98A0C; --go:#1F8A5B; --go-soft:#DDF2E7; --info:#1C5D99; --info-soft:#E1ECF7;
+  --river:#C3DCEC; --road:#CBD4DC; --block:#F3F5F7; --label:#6B7987;
+  --s5:#D62839; --s4:#E46A1E; --s3:#D9A21B; --s2:#86AE3A; --s1:#8A97A5;
+  --fire:#D62839; --rescue:#1C5D99; --amb:#FFFFFF;
+  --shadow:0 1px 2px rgba(21,32,43,.06), 0 4px 16px rgba(21,32,43,.06);
+  color-scheme:light;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0E151C; --surface:#16202A; --surface-2:#1B2733; --ink:#E6ECF2; --muted:#93A3B3; --line:#2A3745;
+    --siren:#F0475A; --siren-ink:#FFFFFF; --siren-soft:#3A1A20;
+    --amber:#E9B03A; --go:#3BB57E; --go-soft:#16332A; --info:#6FA8E0; --info-soft:#18293B;
+    --river:#1D3A52; --road:#33414F; --block:#1A2530; --label:#8193A4;
+    --fire:#F0475A; --rescue:#6FA8E0; --amb:#F4F7FA;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 18px rgba(0,0,0,.25);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0E151C; --surface:#16202A; --surface-2:#1B2733; --ink:#E6ECF2; --muted:#93A3B3; --line:#2A3745;
+  --siren:#F0475A; --siren-ink:#FFFFFF; --siren-soft:#3A1A20;
+  --amber:#E9B03A; --go:#3BB57E; --go-soft:#16332A; --info:#6FA8E0; --info-soft:#18293B;
+  --river:#1D3A52; --road:#33414F; --block:#1A2530; --label:#8193A4;
+  --fire:#F0475A; --rescue:#6FA8E0; --amb:#F4F7FA;
+  --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 18px rgba(0,0,0,.25);
+  color-scheme:dark;
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px);height:100%}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);
+  font-family:"Archivo","Noto Sans Devanagari",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  font-size:15px;line-height:1.45;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--surface)}
+button,select,textarea,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--info);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+/* ---------- header ---------- */
+header{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--surface);border-bottom:1px solid var(--line);
+  display:flex;align-items:center;gap:14px;padding:10px 18px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;margin-right:auto}
+.brand svg{flex:none}
+.brand h1{margin:0;font-size:21px;font-weight:800;font-stretch:112%;letter-spacing:-.01em;line-height:1}
+.brand p{margin:2px 0 0;font-size:12.5px;color:var(--muted)}
+.clock{display:flex;align-items:baseline;gap:6px;padding:4px 12px;border-left:1px solid var(--line)}
+.clock b{font-size:22px;font-stretch:75%;font-weight:700}
+.clock span{font-size:12.5px;color:var(--muted)}
+.ctrl{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:7px 12px;font-size:13.5px;font-weight:600;
+  display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.btn:hover{background:var(--surface-2)}
+.btn[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.btn.warn[aria-pressed="true"]{background:var(--siren);border-color:var(--siren);color:#fff}
+.btn.primary{background:var(--siren);color:var(--siren-ink);border-color:var(--siren)}
+.btn.primary:hover{filter:brightness(1.05)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:transparent;padding:7px 10px;font-size:13px;font-weight:600}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--surface)}
+
+/* ---------- layout ---------- */
+main{display:grid;grid-template-columns:minmax(330px,380px) minmax(0,1fr) minmax(320px,390px);gap:14px;padding:14px 18px 18px;align-items:start}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
+.pad{padding:16px 18px}
+h2{font-size:17px;font-weight:750;font-stretch:105%;margin:0 0 4px}
+h3{font-size:14px;font-weight:700;margin:0;display:flex;align-items:center;gap:8px}
+.hint{color:var(--muted);font-size:13px;margin:0}
+.stack>*+*{margin-top:12px}
+
+/* ---------- citizen report ---------- */
+.lang{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:10px}
+.lang select{border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--surface)}
+.sos-wrap{display:grid;place-items:center;padding:18px 0 6px;position:relative}
+.sos{width:148px;height:148px;border-radius:50%;border:0;background:var(--siren);color:var(--siren-ink);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;position:relative;z-index:1;
+  box-shadow:0 10px 30px -8px color-mix(in srgb,var(--siren) 70%,transparent), inset 0 -6px 0 rgba(0,0,0,.12);
+  transition:transform .15s ease}
+.sos:active{transform:scale(.97)}
+.sos svg{width:40px;height:40px}
+.sos b{font-size:15px;font-weight:750;font-stretch:110%}
+.sos small{font-size:11.5px;opacity:.9}
+.ring{position:absolute;width:148px;height:148px;border-radius:50%;border:2px solid var(--siren);opacity:0;pointer-events:none}
+.listening .ring{animation:ring 1.8s ease-out infinite}
+.listening .ring:nth-child(2){animation-delay:.6s}
+.listening .ring:nth-child(3){animation-delay:1.2s}
+@keyframes ring{from{transform:scale(1);opacity:.55}to{transform:scale(1.75);opacity:0}}
+.listening .sos{background:var(--ink);color:var(--surface)}
+.voice-state{text-align:center;font-size:13px;color:var(--muted);min-height:20px;margin:6px 0 0}
+.voice-state.err{color:var(--siren)}
+.meter{display:flex;gap:3px;justify-content:center;align-items:flex-end;height:22px;margin:8px 0 0;opacity:0;transition:opacity .2s}
+.listening~.meter,.meter.on{opacity:1}
+.meter i{width:5px;border-radius:3px;background:var(--siren);height:4px;transition:height .08s linear}
+.voice-help{font-size:12.5px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin-top:8px;text-align:left}
+.voice-help b{display:block;margin-bottom:3px}
+.voice-help ol{margin:4px 0 0;padding-left:18px}
+textarea{width:100%;min-height:96px;resize:vertical;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface-2);font-size:15px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 11px;font-size:13px;font-weight:600;display:inline-flex;gap:6px;align-items:center}
+.chip:hover{background:var(--surface-2)}
+.chip i{width:9px;height:9px;border-radius:50%;display:inline-block}
+.field label{display:block;font-size:13px;font-weight:600;margin-bottom:4px}
+.field select{width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--surface)}
+.toggles{display:grid;gap:8px}
+.tog{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13.5px}
+.tog input{width:36px;height:20px;appearance:none;background:var(--line);border-radius:999px;position:relative;cursor:pointer;flex:none;transition:background .15s}
+.tog input::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .15s}
+.tog input:checked{background:var(--go)}
+.tog input:checked::after{transform:translateX(16px)}
+.send{width:100%;justify-content:center;padding:12px;font-size:15.5px;border-radius:10px}
+.send:disabled{opacity:.55;cursor:not-allowed}
+.disclaimer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);padding:12px 18px;display:flex;gap:8px;align-items:flex-start}
+.disclaimer a{color:var(--siren);font-weight:700}
+
+/* tracking card */
+.track{display:none}
+.track.on{display:block}
+.track .eta{display:flex;align-items:baseline;gap:8px;margin:6px 0 10px}
+.track .eta b{font-size:52px;font-weight:800;font-stretch:72%;line-height:1}
+.track .eta span{color:var(--muted)}
+.steps{list-style:none;margin:0 0 12px;padding:0;display:grid;gap:0}
+.steps li{display:grid;grid-template-columns:22px 1fr;gap:10px;align-items:start;padding:6px 0;position:relative;color:var(--muted)}
+.steps li::before{content:"";width:14px;height:14px;border-radius:50%;border:2px solid var(--line);margin-top:3px;background:var(--surface);z-index:1}
+.steps li:not(:last-child)::after{content:"";position:absolute;left:7px;top:20px;bottom:-6px;width:2px;background:var(--line)}
+.steps li.done{color:var(--ink)}
+.steps li.done::before{background:var(--go);border-color:var(--go)}
+.steps li.now{color:var(--ink);font-weight:700}
+.steps li.now::before{border-color:var(--siren);background:var(--siren-soft);box-shadow:0 0 0 4px color-mix(in srgb,var(--siren) 18%,transparent)}
+.facts{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13.5px;background:var(--surface-2);border-radius:10px;padding:10px 12px}
+.facts dt{color:var(--muted)}
+.facts dd{margin:0;font-weight:600}
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;border-radius:999px;padding:2px 8px;background:var(--info-soft);color:var(--info)}
+.locask{border:1px dashed var(--siren);background:var(--siren-soft);border-radius:10px;padding:12px}
+.locask p{margin:0 0 8px;font-weight:600}
+
+/* ---------- center: kpis + map ---------- */
+.kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:14px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.kpi .v{font-size:28px;font-weight:800;font-stretch:75%;line-height:1.05}
+.kpi .l{font-size:12.5px;color:var(--muted)}
+.kpi.alert .v{color:var(--siren)}
+.fleetbars{display:grid;gap:4px;margin-top:4px}
+.fb{display:grid;grid-template-columns:62px 1fr 30px;align-items:center;gap:6px;font-size:11.5px;color:var(--muted)}
+.fb .bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden}
+.fb .bar i{display:block;height:100%;background:var(--go);border-radius:3px;transition:width .4s}
+.mapwrap{position:relative}
+.maphead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--line)}
+.maphead h2{margin:0 auto 0 0}
+#map{display:block;width:100%;height:auto;max-height:calc(100vh - 260px);aspect-ratio:1/1;margin:0 auto}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;padding:10px 16px;border-top:1px solid var(--line);font-size:12.5px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.veh{transition:transform var(--tick,1s) linear}
+.inc-pulse{animation:pulse 1.6s ease-out infinite;transform-box:fill-box;transform-origin:center}
+@keyframes pulse{from{transform:scale(1);opacity:.55}to{transform:scale(2.3);opacity:0}}
+.lm-label{font-size:8.5px;fill:var(--label);font-weight:500;pointer-events:none}
+.st-label{font-size:9px;font-weight:700;fill:var(--ink)}
+.incident{cursor:pointer}
+
+/* ---------- right column ---------- */
+.rcol{display:grid;gap:14px}
+.list{list-style:none;margin:0;padding:0}
+.qitem{display:grid;grid-template-columns:40px 1fr auto;gap:10px;align-items:center;padding:10px 16px;border-top:1px solid var(--line);cursor:pointer;background:none;border-left:0;border-right:0;border-bottom:0;width:100%;text-align:left}
+.qitem:hover{background:var(--surface-2)}
+.sev{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;font-weight:800;font-stretch:80%;color:#fff;font-size:15px;line-height:1}
+.sev small{display:block;font-size:9px;font-weight:600;opacity:.9}
+.qmain b{display:block;font-size:14px}
+.qmain span{font-size:12.5px;color:var(--muted)}
+.qside{text-align:right;font-size:12px;color:var(--muted)}
+.qside b{display:block;font-size:15px;color:var(--ink)}
+.empty{padding:14px 16px;color:var(--muted);font-size:13.5px;border-top:1px solid var(--line)}
+.sechead{display:flex;align-items:center;justify-content:space-between;padding:12px 16px}
+.count{font-size:12px;font-weight:700;background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:1px 8px}
+.feed li{padding:9px 16px;border-top:1px solid var(--line);font-size:13px}
+.feed .meta{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:11.5px;margin-bottom:2px}
+.feed q{quotes:"\201C" "\201D";color:var(--ink)}
+.feed .out{font-size:12px;font-weight:600;margin-top:3px}
+.out.join{color:var(--info)} .out.new{color:var(--go)} .out.ign{color:var(--muted)} .out.loc{color:var(--siren)}
+.log li{padding:8px 16px;border-top:1px solid var(--line);font-size:12.8px;display:grid;grid-template-columns:44px 1fr;gap:8px}
+.log time{color:var(--muted);font-weight:600}
+.log .ev{color:var(--siren);font-weight:600}
+.scroll{max-height:300px;overflow:auto}
+
+/* drawer */
+dialog{border:0;padding:0;border-radius:16px;max-width:560px;width:calc(100% - 24px);background:var(--surface);color:var(--ink);box-shadow:0 20px 60px rgba(0,0,0,.35)}
+dialog::backdrop{background:rgba(10,16,22,.45)}
+.dhead{display:flex;gap:12px;align-items:center;padding:16px 18px;border-bottom:1px solid var(--line)}
+.dhead h2{margin:0}
+.dbody{padding:14px 18px;display:grid;gap:12px;max-height:65vh;overflow:auto}
+.calls li{background:var(--surface-2);border-radius:10px;padding:8px 10px;margin-top:6px;font-size:13.5px}
+.calls{list-style:none;margin:0;padding:0}
+.warnlist{margin:0;padding-left:18px;font-size:13px;color:var(--muted)}
+
+.toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom,0px));transform:translateX(-50%) translateY(20px);opacity:0;background:var(--ink);color:var(--surface);
+  padding:10px 16px;border-radius:10px;font-size:14px;font-weight:600;transition:all .25s;z-index:50;pointer-events:none;max-width:92vw}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* ---------- tracking + feedback ---------- */
+.steps li time{display:block;font-size:12px;color:var(--muted);font-weight:500}
+.mine{border-top:1px solid var(--line)}
+.mine .chips{margin-top:8px}
+.mine .chip[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.mine .chip small{font-weight:500;opacity:.8}
+.trackby{display:flex;gap:6px;margin-top:14px;border-top:1px solid var(--line);padding-top:14px}
+.trackby input{flex:1;min-width:0;border:1px solid var(--line);border-radius:8px;padding:7px 10px;background:var(--surface-2)}
+.fbcard{border:1px solid var(--line);border-radius:12px;padding:14px;margin-top:14px;background:var(--surface-2)}
+.fbcard h3{font-size:15px}
+.stars{display:flex;gap:2px;margin:6px 0 4px}
+.stars button{border:0;background:none;font-size:32px;line-height:1;padding:0 3px;color:var(--line)}
+.stars button.on{color:var(--amber)}
+.fbtags{margin:8px 0}
+.fbtags .chip[aria-pressed="true"]{background:var(--info-soft);border-color:var(--info);color:var(--info)}
+.fbrow{display:flex;gap:6px;align-items:flex-start}
+.fbrow textarea{min-height:64px;background:var(--surface)}
+.mini-mic{flex:none;width:42px;height:42px;border-radius:10px;border:1px solid var(--line);background:var(--surface);display:grid;place-items:center}
+.mini-mic.on{background:var(--siren);color:#fff;border-color:var(--siren)}
+.thanks{background:var(--go-soft);color:var(--go);border-radius:10px;padding:10px 12px;font-weight:600;margin-top:14px}
+.insights{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:14px}
+.insights .targets{grid-column:1/-1}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:7px 10px;border-top:1px solid var(--line);text-align:left;white-space:nowrap}
+thead th{font-weight:700;color:var(--muted);font-size:12px;border-top:0;position:sticky;top:0;background:var(--surface)}
+.num{text-align:right}
+.tablewrap{overflow:auto;max-height:360px}
+.ok{color:var(--go);font-weight:700}.late{color:var(--siren);font-weight:700}.pend{color:var(--muted)}
+.mine-row td:first-child{font-weight:800}
+.fbstats{display:grid;grid-template-columns:auto 1fr;gap:18px;padding:0 16px 12px;align-items:center}
+.bigstar b{font-size:46px;font-weight:800;font-stretch:72%;line-height:1;color:var(--amber)}
+.dist{display:grid;gap:3px}
+.dist div{display:grid;grid-template-columns:22px 1fr 28px;gap:6px;align-items:center;font-size:12px;color:var(--muted)}
+.bar{height:7px;background:var(--line);border-radius:4px;overflow:hidden}
+.bar i{display:block;height:100%;border-radius:4px}
+.dist .bar i{background:var(--amber)}
+.tagcloud{display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 12px}
+.tagcloud span{font-size:12px;border:1px solid var(--line);border-radius:999px;padding:2px 9px}
+.rvr{padding:0 16px 12px}
+.rvr p{margin:0 0 4px;font-size:12.5px;font-weight:700}
+.rvr div{display:grid;grid-template-columns:96px 1fr 52px;gap:8px;align-items:center;font-size:12px;color:var(--muted);margin-top:4px}
+.rvr .bar i{background:var(--info)}
+.sumline{padding:0 16px 10px;margin:0;font-size:13px;color:var(--muted)}
+.comments li{padding:8px 16px;border-top:1px solid var(--line);font-size:13px}
+.comments .meta{color:var(--muted);font-size:11.5px}
+
+/* ---------- roles: citizen, control room, field crew ---------- */
+.roles{display:inline-flex;background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:3px;gap:2px}
+.roles button{border:0;background:transparent;border-radius:9px;padding:7px 13px;font-size:13.5px;font-weight:650;color:var(--muted);display:inline-flex;gap:7px;align-items:center;white-space:nowrap}
+.roles button:hover{color:var(--ink)}
+.roles button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+.roles svg{width:16px;height:16px;flex:none}
+main>section:not(.in-role){display:none !important}
+main>section.in-role{display:block}
+main>section.rcol.in-role,main>section.insights.in-role{display:grid}
+body[data-role="citizen"] main{grid-template-columns:minmax(340px,430px) minmax(0,1fr)}
+body[data-role="crew"] main{grid-template-columns:minmax(340px,420px) minmax(0,1fr)}
+body[data-role="control"] main{grid-template-columns:minmax(0,1fr) minmax(330px,400px)}
+body[data-role="control"] section[data-tab="map"]{grid-column:1;grid-row:1}
+body[data-role="control"] .rcol{grid-column:2;grid-row:1 / span 2;align-self:start}
+body[data-role="control"] .insights{grid-column:1;grid-row:2}
+body[data-role="citizen"] section[data-tab="map"],body[data-role="crew"] section[data-tab="map"]{position:sticky;top:76px}
+body[data-role="crew"] section[data-tab="crew"]{grid-column:1;grid-row:1}
+body[data-role="crew"] section[data-tab="map"]{grid-column:2;grid-row:1}
+body:not([data-role="control"]) .ctl-only{display:none !important}
+.rolehint{font-size:12.5px;color:var(--muted);padding:0 2px 10px}
+
+/* alerts */
+.alerts{display:grid;gap:6px;margin-bottom:12px}
+.alert{display:grid;grid-template-columns:28px 1fr auto;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--siren);border-radius:12px;padding:6px 10px;font-size:13.5px;min-height:44px}
+.alert.loc{border-left-color:var(--amber)}.alert.fleet{border-left-color:var(--info)}
+.alert .ic{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:var(--siren-soft);color:var(--siren);font-weight:800}
+.alert.loc .ic{background:color-mix(in srgb,var(--amber) 18%,transparent);color:var(--amber)}
+.alert.fleet .ic{background:var(--info-soft);color:var(--info)}
+.alert b{font-weight:700}.alert span{color:var(--muted)}
+.allclear{display:inline-flex;gap:8px;align-items:center;font-size:13px;color:var(--go);background:var(--go-soft);border-radius:999px;padding:5px 12px;font-weight:650;justify-self:start}
+
+/* dispatcher controls in the incident drawer */
+.dinfo{display:grid;gap:12px}
+.ctl{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--surface-2);display:grid;gap:10px}
+.ctl label{font-size:12.5px;font-weight:650;color:var(--muted);display:block;margin-bottom:3px}
+.ctl input,.ctl select{width:100%;border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:var(--surface)}
+.ctlgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.ctlbox{display:grid;grid-template-columns:1fr auto;gap:6px;align-items:end}
+.ctlbox>div{min-width:0}
+.vrow{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;padding:6px 0;border-top:1px solid var(--line)}
+.okmsg{color:var(--go);font-weight:650}.errmsg{color:var(--siren);font-weight:650}
+.log .ov{color:var(--info);font-weight:650}
+
+/* field crew */
+.crewpick{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 14px}
+.crewpick .chip[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.crewpick .chip i{border-radius:3px}
+.brief{display:grid;gap:12px}
+.bhead{display:flex;align-items:center;gap:12px}
+.bhead svg{flex:none}
+.bhead b{display:block;font-size:18px;font-stretch:105%}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;border-radius:999px;padding:3px 10px;background:var(--surface-2);border:1px solid var(--line);margin-left:auto;white-space:nowrap}
+.pill.go{background:var(--siren-soft);color:var(--siren);border-color:transparent}
+.pill.scene{background:var(--go-soft);color:var(--go);border-color:transparent}
+.dest{background:var(--ink);color:var(--surface);border-radius:14px;padding:14px 16px;display:grid;grid-template-columns:1fr auto;align-items:center;gap:8px}
+.dest small{display:block;opacity:.75;font-size:12px}
+.dest b{font-size:20px;font-stretch:105%;line-height:1.2}
+.dest .big{font-size:44px;font-weight:800;font-stretch:72%;line-height:1;text-align:right}
+.dest .big small{text-align:right}
+.quotes{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.quotes li{background:var(--surface-2);border-radius:10px;padding:8px 10px;font-size:13.5px}
+.watch{margin:0;padding-left:18px;font-size:13px}
+.watch li{margin:3px 0}
+.idle{background:var(--surface-2);border-radius:12px;padding:14px;color:var(--muted);font-size:14px}
+
+/* plan targets */
+.tgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;padding:0 16px 16px}
+.tile{border:1px solid var(--line);border-radius:12px;padding:11px 12px;display:grid;gap:3px;align-content:start}
+.tile .tv{font-size:28px;font-weight:800;font-stretch:75%;line-height:1.05}
+.tile .tl{font-size:12.5px;color:var(--ink);font-weight:650}
+.tile .tt{font-size:12px;color:var(--muted)}
+.st{justify-self:start;font-size:11.5px;font-weight:700;border-radius:999px;padding:2px 8px;margin-top:4px}
+.st.met{background:var(--go-soft);color:var(--go)}.st.miss{background:var(--siren-soft);color:var(--siren)}.st.na{background:var(--surface-2);color:var(--muted)}
+.privacy{font-size:12px;color:var(--muted);text-align:center;margin:2px 0 0}
+
+/* mobile tabs */
+.tabs{display:none}
+@media (max-width:1180px){
+  body[data-role="control"] main{grid-template-columns:1fr}
+  body[data-role="control"] .rcol{grid-column:1;grid-row:auto;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+  body[data-role="control"] .insights{grid-column:1;grid-row:auto}
+  .insights{grid-template-columns:minmax(0,1fr)}
+  .kpis{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media (max-width:820px){
+  header{padding:8px 12px;gap:8px;position:static}
+  .brand p{display:none}
+  .clock{border-left:0;padding:0}
+  .roles{order:3;width:100%}
+  .roles button{flex:1;justify-content:center;padding:7px 4px;font-size:12.5px}
+  .roles svg{display:none}
+  body[data-role] main{grid-template-columns:minmax(0,1fr);padding:10px 10px calc(76px + env(safe-area-inset-bottom,0px))}
+  body[data-role] main>section{grid-column:1 !important;grid-row:auto !important;position:static !important}
+  main>section.in-role:not(.show){display:none !important}
+  .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .rcol{grid-template-columns:1fr}
+  .tabs{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:30;background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
+  .tabs button{flex:1;border:0;background:none;padding:10px 0 12px;font-size:12.5px;font-weight:700;color:var(--muted);display:grid;justify-items:center;gap:2px}
+  .tabs button[hidden]{display:none}
+  .tabs button[aria-selected="true"]{color:var(--siren)}
+  #map{max-height:none}
+}
+@media (prefers-reduced-motion:reduce){
+  .listening .ring,.inc-pulse{animation:none}
+  .veh{transition:none}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <svg width="38" height="38" viewBox="0 0 38 38" aria-hidden="true">
+      <rect x="1" y="1" width="36" height="36" rx="10" fill="var(--siren)"/>
+      <path d="M15.5 8h7v7.5H30v7h-7.5V30h-7v-7.5H8v-7h7.5z" fill="#fff"/>
+    </svg>
+    <div><h1>Sahayak 112</h1><p>Smart city emergency dispatch</p></div>
+  </div>
+  <nav class="roles" aria-label="Who is using the app">
+    <button data-role="citizen" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5Z"/></svg><span>Citizen</span></button>
+    <button data-role="control" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M3 5h18v11H3zM8 20h8M12 16v4"/><path fill="currentColor" d="M7 12l3-3 2 2 4-4 1 1-5 5-2-2-2 2z"/></svg><span>Control room</span></button>
+    <button data-role="crew" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M2 15V8h11v7M13 10h4l3 3v2h-7"/><circle cx="6.5" cy="16.5" r="2" fill="currentColor"/><circle cx="16.5" cy="16.5" r="2" fill="currentColor"/><path stroke="currentColor" stroke-width="2" d="M7.5 9.5v3M6 11h3"/></svg><span>Field crew</span></button>
+  </nav>
+  <div class="clock" aria-live="off"><b id="clock">00:00</b><span id="clockSub">since start</span></div>
+  <div class="ctrl" role="group" aria-label="Simulation controls">
+    <button class="btn" id="playBtn" aria-pressed="false" title="Pause or resume the simulation">
+      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><rect x="2" y="1" width="3.5" height="12" rx="1" fill="currentColor"/><rect x="8.5" y="1" width="3.5" height="12" rx="1" fill="currentColor"/></svg>
+      <span>Pause</span></button>
+    <div class="seg" role="group" aria-label="Simulation speed">
+      <button data-speed="1" aria-pressed="true">1×</button>
+      <button data-speed="3" aria-pressed="false">3×</button>
+      <button data-speed="8" aria-pressed="false">8×</button>
+    </div>
+    <button class="btn primary" id="drillBtn">Start earthquake drill</button>
+    <button class="btn" id="resetBtn">Reset city</button>
+  </div>
+</header>
+
+<main>
+  <!-- ============ CITIZEN ============ -->
+  <section id="reportCol" class="show" data-tab="report">
+    <div class="panel">
+      <div class="pad" id="reportForm">
+        <h2>Report an emergency</h2>
+        <p class="hint">Tell us what happened, where, and how many people need help. Speak or type, in English or Hindi.</p>
+        <div class="lang">
+          <label for="langSel" class="hint">Voice language</label>
+          <select id="langSel">
+            <option value="en-IN">English (India)</option>
+            <option value="hi-IN">हिन्दी (Hindi)</option>
+          </select>
+        </div>
+        <div class="sos-wrap" id="sosWrap">
+          <span class="ring"></span><span class="ring"></span><span class="ring"></span>
+          <button class="sos" id="micBtn" aria-label="Start voice report">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-6a3.5 3.5 0 0 0-7 0v6A3.5 3.5 0 0 0 12 15Zm6-3.5a1 1 0 1 0-2 0 4 4 0 0 1-8 0 1 1 0 1 0-2 0 6 6 0 0 0 5 5.91V20H8.5a1 1 0 1 0 0 2h7a1 1 0 1 0 0-2H13v-2.59A6 6 0 0 0 18 11.5Z"/></svg>
+            <b id="micLabel">Tap to speak</b>
+            <small id="micSub">voice report</small>
+          </button>
+        </div>
+        <div class="meter" id="meter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <p class="voice-state" id="voiceState" aria-live="polite"></p>
+        <div class="voice-help" id="voiceHelp" hidden></div>
+        <p class="privacy">Your voice becomes text in this browser. No audio is kept.</p>
+        <div class="stack">
+          <label class="sr" for="reportText">Report text</label>
+          <textarea id="reportText" placeholder="Or type here, for example: “Fire at Sunrise Mall, two people stuck on the second floor”"></textarea>
+          <div class="chips" aria-label="Add the type of emergency">
+            <button class="chip" data-add="There is a fire"><i style="background:var(--s5)"></i>Fire</button>
+            <button class="chip" data-add="Someone is badly hurt"><i style="background:var(--s4)"></i>Medical</button>
+            <button class="chip" data-add="A building has collapsed"><i style="background:var(--s4)"></i>Building collapse</button>
+            <button class="chip" data-add="Flood water is rising"><i style="background:var(--info)"></i>Flood</button>
+            <button class="chip" data-add="Strong gas smell, a cylinder is leaking"><i style="background:var(--s3)"></i>Gas leak</button>
+          </div>
+          <div class="field">
+            <label for="lmSel">Nearest landmark (if you didn’t say it)</label>
+            <select id="lmSel"><option value="">Detect from my report</option></select>
+          </div>
+          <div class="toggles">
+            <label class="tog" id="aiRow" hidden><span>Use Claude to understand my report <span class="hint">(better with Hindi and unclear speech)</span></span><input type="checkbox" id="aiTog" checked></label>
+            <label class="tog"><span>Read status updates aloud</span><input type="checkbox" id="speakTog" checked></label>
+          </div>
+          <button class="btn primary send" id="sendBtn">Send report</button>
+        </div>
+        <div class="trackby">
+          <label class="sr" for="refIn">Reference number</label>
+          <input id="refIn" placeholder="Already reported? Enter reference, e.g. INC-004" autocomplete="off">
+          <button class="btn" id="refBtn">Track</button>
+        </div>
+        <p class="hint" id="refMsg" aria-live="polite"></p>
+      </div>
+
+      <div class="pad track" id="track" aria-live="polite">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <h2 id="trackTitle">Help is being arranged</h2>
+          <span class="badge" id="trackId">INC-001</span>
+        </div>
+        <div id="locAsk"></div>
+        <div class="eta"><b id="etaNum">…</b><span id="etaTxt">finding the fastest vehicle</span></div>
+        <ol class="steps" id="steps">
+          <li><span>Report received<time></time></span></li>
+          <li><span>Help assigned<time></time></span></li>
+          <li><span>On the way<time></time></span></li>
+          <li><span>Arrived at the scene<time></time></span></li>
+        </ol>
+        <dl class="facts" id="facts"></dl>
+        <p class="hint" style="margin-top:10px" id="viaTxt"></p>
+        <div id="fbBox"></div>
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+          <button class="btn" id="addInfoBtn">Add more details</button>
+          <button class="btn" id="newReportBtn">Report another emergency</button>
+        </div>
+      </div>
+      <div class="pad mine" id="mine" hidden>
+        <h3>Your reports</h3>
+        <p class="hint">Tap a report to track it.</p>
+        <div class="chips" id="mineList"></div>
+      </div>
+      <div class="disclaimer">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style="flex:none;margin-top:2px"><circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.5v4.2M8 10.8v.7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <span>This is a training simulation of a city; no real vehicle is sent. In a real emergency in India, call <a href="tel:112">112</a>.</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ COMMAND CENTER ============ -->
+  <section data-tab="map">
+    <div class="alerts ctl-only" id="alerts" aria-live="polite"></div>
+    <div class="kpis ctl-only" id="kpis">
+      <div class="kpi" id="kOpen"><div class="v">0</div><div class="l">Open incidents</div></div>
+      <div class="kpi" id="kWait"><div class="v">0</div><div class="l">Waiting for a vehicle</div></div>
+      <div class="kpi" id="kResp"><div class="v">–</div><div class="l">Avg minutes to help, severe</div></div>
+      <div class="kpi" id="kCalls"><div class="v">0</div><div class="l">Calls handled</div></div>
+      <div class="kpi" id="kFleet"><div class="l">Free vehicles</div><div class="fleetbars" id="fleetBars"></div></div>
+    </div>
+    <div class="panel mapwrap">
+      <div class="maphead">
+        <h2>Live city map</h2>
+        <button class="btn warn ctl-only" id="bridgeBtn" aria-pressed="false">Close Main Bridge</button>
+        <button class="btn warn ctl-only" id="trafficBtn" aria-pressed="false">Traffic jam, north-west</button>
+        <button class="btn" id="labelsBtn" aria-pressed="true">Landmarks</button>
+      </div>
+      <svg id="map" viewBox="0 0 620 620" role="img" aria-label="City map with incidents and emergency vehicles"></svg>
+      <div class="legend">
+        <span><svg width="14" height="14"><rect x="1" y="1" width="12" height="12" rx="3" fill="var(--amb)" stroke="var(--ink)" stroke-width="1"/><path d="M6 3.5h2v2.5h2.5v2H8v2.5H6V8H3.5V6H6z" fill="var(--siren)"/></svg>Ambulance</span>
+        <span><svg width="14" height="14"><path d="M7 1.5 13 12.5H1z" fill="var(--fire)" stroke="var(--ink)" stroke-width="1"/></svg>Fire truck</span>
+        <span><svg width="14" height="14"><path d="M7 1 13 7 7 13 1 7z" fill="var(--rescue)" stroke="var(--ink)" stroke-width="1"/></svg>Rescue team</span>
+        <span><svg width="14" height="14"><path d="M7 1.5 12.5 4.6v5L7 12.5 1.5 9.6v-5z" fill="var(--ink)"/></svg>Station (free vehicles)</span>
+        <span><svg width="14" height="14"><circle cx="7" cy="7" r="6" fill="var(--s5)"/></svg>Incident (color = severity, size = callers)</span>
+        <span><svg width="18" height="14"><path d="M1 7h16" stroke="var(--siren)" stroke-width="4"/></svg>Closed road</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="rcol" data-tab="queue">
+    <div class="panel">
+      <div class="sechead"><h3>Priority queue</h3><span class="count" id="qCount">0</span></div>
+      <ul class="list scroll" id="queue"></ul>
+    </div>
+    <div class="panel">
+      <div class="sechead"><h3>Incoming calls</h3><span class="count" id="cCount">0</span></div>
+      <ul class="list feed scroll" id="feed" style="max-height:260px"></ul>
+    </div>
+    <div class="panel">
+      <div class="sechead"><h3>Why each vehicle was sent</h3></div>
+      <ul class="list log scroll" id="log" style="max-height:260px"></ul>
+    </div>
+  </section>
+
+  <!-- ============ TRACKING + FEEDBACK ============ -->
+  <section class="insights" data-tab="insights">
+    <div class="panel targets">
+      <div class="sechead"><h3>Plan targets, live</h3><span class="hint">this session</span></div>
+      <div class="tgrid" id="targets"></div>
+    </div>
+    <div class="panel">
+      <div class="sechead"><h3>Response tracking</h3><button class="btn" id="expResp">Export response log (CSV)</button></div>
+      <p class="sumline" id="respSum">Each incident’s timeline appears here: when it was reported, when help was assigned, when it arrived and when it closed.</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Incident</th><th>Emergency</th><th class="num">Sev</th><th>Place</th><th class="num">Reported</th>
+            <th class="num">Assigned</th><th class="num">Arrived</th><th class="num">Closed</th><th class="num">Response</th><th>Target</th><th>Rating</th></tr></thead>
+          <tbody id="respBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="sechead"><h3>Citizen feedback</h3><button class="btn" id="expFb">Export feedback (CSV)</button></div>
+      <div class="fbstats"><div class="bigstar"><b id="fbAvg">–</b><div class="hint" id="fbCount">no ratings yet</div></div><div class="dist" id="fbDist"></div></div>
+      <div class="tagcloud" id="fbTags"></div>
+      <div class="rvr" id="fbRvr"></div>
+      <ul class="list comments" id="fbComments"></ul>
+    </div>
+  </section>
+
+  <!-- ============ FIELD CREW ============ -->
+  <section data-tab="crew">
+    <div class="panel pad">
+      <h2>Field crew brief</h2>
+      <p class="hint">Pick your vehicle to see where to go, how long it takes, and what callers said before you arrive.</p>
+      <div class="chips crewpick" id="crewPick"></div>
+      <div id="crewBrief"></div>
+    </div>
+  </section>
+</main>
+
+<nav class="tabs" role="tablist" aria-label="Views">
+  <button role="tab" data-go="report" aria-selected="true">
+    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-6a3.5 3.5 0 0 0-7 0v6A3.5 3.5 0 0 0 12 15Zm6-3.5a1 1 0 1 0-2 0 4 4 0 0 1-8 0 1 1 0 1 0-2 0 6 6 0 0 0 5 5.91V20H8.5a1 1 0 1 0 0 2h7a1 1 0 1 0 0-2H13v-2.59A6 6 0 0 0 18 11.5Z"/></svg>Report</button>
+  <button role="tab" data-go="map" aria-selected="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Zm0 0v14m6-12v14"/></svg>Map</button>
+  <button role="tab" data-go="queue" aria-selected="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M4 6h16M4 12h16M4 18h10"/></svg>Queue</button>
+  <button role="tab" data-go="insights" aria-selected="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="m12 3 2.7 5.6 6.1.8-4.5 4.2 1.1 6L12 16.8 6.6 19.6l1.1-6-4.5-4.2 6.1-.8z"/></svg>Results</button>
+  <button role="tab" data-go="crew" aria-selected="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M2 15V8h11v7M13 10h4l3 3v2h-7"/><circle cx="6.5" cy="16.5" r="2" fill="currentColor"/><circle cx="16.5" cy="16.5" r="2" fill="currentColor"/></svg>Brief</button>
+</nav>
+
+<dialog id="drawer" aria-labelledby="dTitle">
+  <div class="dhead"><div class="sev" id="dSev"></div><div style="flex:1"><h2 id="dTitle"></h2><span class="hint" id="dSub"></span></div>
+    <button class="btn" id="dClose">Close</button></div>
+  <div class="dbody" id="dBody"><div id="dCtl"></div><div class="dinfo" id="dInfo"></div></div>
+</dialog>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+(() => {
+"use strict";
+/* Settings shared with the Python notebook. Part 7 of the notebook replaces this block with its tuned values. */
+/* Text recorded and transcribed outside the page (the Streamlit app fills this in); null when unused. */
+const PREFILL = /*SAHAYAK_PREFILL*/null/*END_SAHAYAK_PREFILL*/;
+const CONFIG = /*SAHAYAK_CONFIG*/{"weights": {"severity": 100, "people": 5, "wait": 1.0, "wait_cap": 90}, "scene": {"collapse": 30, "fire": 25, "gas_leak": 15, "flood": 25, "medical": 15}, "targets": {"severe": 15, "other": 25}}/*END_SAHAYAK_CONFIG*/;
+/* ================================================================
+   CITY MODEL (mirrors the notebook: 20×20 grid, river, 3 bridges)
+   ================================================================ */
+const CITY = CONFIG.city || null;          // filled in by the notebook (Part 7); null = built-in demo city
+const GRID = CITY ? CITY.grid : 20, RIVER_COL = CITY ? CITY.river_col : 9, BRIDGE_ROWS = CITY ? CITY.bridge_rows : [3, 10, 16];
+const MAIN_BRIDGE = CITY ? CITY.main_bridge.map(([r, c]) => r * GRID + c) : [10 * GRID + 9, 10 * GRID + 10];
+const CELL = 30, OFF = 25, TRAFFIC_N = 7;
+const nid = (r, c) => r * GRID + c, rc = id => [Math.floor(id / GRID), id % GRID];
+const px = id => { const [r, c] = rc(id); return [OFF + c * CELL, OFF + r * CELL]; };
+const blocks = (a, b) => { const [r1, c1] = rc(a), [r2, c2] = rc(b); return Math.abs(r1 - r2) + Math.abs(c1 - c2); };
+
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+
+const DEFAULT_LANDMARKS = [
+  ["City Hospital",[8,6],["city hospital","hospital","sarkari hospital","aspatal","अस्पताल","हॉस्पिटल"]],
+  ["Railway Station",[2,12],["railway station","rly station","railway","रेलवे स्टेशन","रेलवे"]],
+  ["Main Bridge",[10,9],["main bridge","bridge","pul","पुल"]],
+  ["Central Market",[6,3],["central market","market","bazaar","bazar","बाजार","बाज़ार","मार्केट"]],
+  ["Green Park School",[12,2],["green park school","green park","ग्रीन पार्क"]],
+  ["Shiv Temple",[4,7],["shiv temple","shiv mandir","mandir","temple","शिव मंदिर","मंदिर"]],
+  ["Indian Oil Petrol Pump",[14,7],["indian oil","petrol pump","petrol pamp","पेट्रोल पंप"]],
+  ["Bus Stand",[1,4],["bus stand","bus adda","bus stop","बस स्टैंड","बस अड्डा"]],
+  ["Police Station",[9,13],["police station","thana","police chowki","थाना","पुलिस स्टेशन"]],
+  ["Town Hall",[5,11],["town hall","टाउन हॉल"]],
+  ["Old Fort",[17,1],["old fort","purana qila","qila","किला","पुराना किला"]],
+  ["Sunrise Mall",[7,16],["sunrise mall","mall","मॉल"]],
+  ["Lake View Apartments",[13,18],["lake view apartments","lake view","lakeview","लेक व्यू"]],
+  ["Gandhi Chowk",[10,5],["gandhi chowk","chowk","गांधी चौक","चौक"]],
+  ["Nehru Park",[15,12],["nehru park","नेहरू पार्क"]],
+  ["Water Tank",[0,8],["water tank","pani tanki","tanki","पानी की टंकी","टंकी"]],
+  ["Post Office",[11,15],["post office","dak ghar","डाकघर","पोस्ट ऑफिस"]],
+  ["Cinema Hall",[8,18],["cinema hall","cinema","picture hall","सिनेमा"]],
+  ["Sports Stadium",[18,16],["sports stadium","stadium","स्टेडियम"]],
+  ["Clock Tower",[3,1],["clock tower","ghanta ghar","घंटा घर","घंटाघर"]],
+  ["Jama Masjid",[12,11],["jama masjid","masjid","mosque","जामा मस्जिद","मस्जिद"]],
+  ["Gurudwara",[16,8],["gurudwara","gurdwara","गुरुद्वारा"]],
+  ["Sabzi Mandi",[18,5],["sabzi mandi","sabji mandi","mandi","सब्ज़ी मंडी","सब्जी मंडी","मंडी"]],
+  ["Metro Station",[4,17],["metro station","metro","मेट्रो"]],
+  ["Flyover",[14,14],["flyover","फ्लाईओवर"]],
+  ["Power House",[1,15],["power house","bijli ghar","बिजली घर"]],
+  ["Textile Mill",[19,11],["textile mill","mill","कपड़ा मिल","मिल"]],
+  ["Government College",[6,14],["government college","govt college","college","सरकारी कॉलेज","कॉलेज"]],
+  ["St Mary Church",[16,3],["st mary church","church","चर्च"]],
+  ["DAV School",[2,18],["dav school","d a v school","डीएवी स्कूल"]],
+];
+// Hindi and Hinglish aliases are kept even when the notebook supplies its own landmark positions.
+const EXTRA_ALIASES = Object.fromEntries(DEFAULT_LANDMARKS.map(([n, , a]) => [n, a]));
+const LANDMARKS = (CITY
+  ? CITY.landmarks.map(([name, r, c, aliases]) => [name, [r, c], [...new Set([...aliases, ...(EXTRA_ALIASES[name] || [])])]])
+  : DEFAULT_LANDMARKS).map(([name, [r, c], aliases]) => ({ name, node: nid(r, c), aliases }));
+const PLACE = Object.fromEntries(LANDMARKS.map(l => [l.name, l]));
+const ALIASES = LANDMARKS.flatMap(l => l.aliases.map(a => [a, l.name])).sort((a, b) => b[0].length - a[0].length);
+
+const STATIONS = CITY ? Object.fromEntries(Object.entries(CITY.stations).map(([k, [r, c]]) => [k, nid(r, c)]))
+  : { "North-West": nid(3, 3), "North-East": nid(3, 15), "South-West": nid(15, 4), "South-East": nid(16, 15) };
+const FLEET_SIZE = CITY ? CITY.fleet : { ambulance: 8, fire_truck: 5, rescue: 3 };
+const SCENE_MIN = CONFIG.scene;
+const TYPE_NAME = { collapse: "Building collapse", fire: "Fire", gas_leak: "Gas leak", flood: "Flood", medical: "Medical" };
+const VNAME = { ambulance: "ambulance", fire_truck: "fire truck", rescue: "rescue team" };
+const COMPATIBLE = { collapse: ["collapse","medical"], medical: ["medical","collapse","fire","flood"], fire: ["fire","gas_leak"],
+                     gas_leak: ["gas_leak","fire"], flood: ["flood","medical"] };
+
+function vehiclesNeeded(type, sev) {
+  if (CITY && CITY.needs) return { ...CITY.needs[type][Math.min(5, Math.max(1, sev)) - 1] };   // the notebook's rulebook
+  const n = {};
+  if (type === "collapse") { n.rescue = 1; n.ambulance = sev >= 4 ? 2 : 1; }
+  if (type === "fire") { n.fire_truck = sev >= 4 ? 2 : 1; if (sev >= 4) n.ambulance = 1; }
+  if (type === "gas_leak") { n.fire_truck = 1; if (sev >= 4) n.ambulance = 1; }
+  if (type === "flood") { n.rescue = 1; if (sev >= 3) n.ambulance = 1; }
+  if (type === "medical") { n.ambulance = sev >= 5 ? 2 : 1; }
+  return n;
+}
+
+/* ================================================================
+   STATE
+   ================================================================ */
+let S;
+function buildCity() {
+  const rng = mulberry32(7), edges = new Map(), adj = Array.from({ length: GRID * GRID }, () => []);
+  const add = (a, b) => {
+    const key = a < b ? a + "-" + b : b + "-" + a, t = Math.round((1 + rng() * 2) * 10) / 10;
+    edges.set(key, { a, b, base: t, time: t, closed: false });
+    adj[a].push(b); adj[b].push(a);
+  };
+  if (CITY && CITY.edges) {                         // exact road times from the notebook's build_city()
+    for (const [a, b, t] of CITY.edges) {
+      edges.set(ekey(a, b), { a: Math.min(a, b), b: Math.max(a, b), base: t, time: t, closed: false });
+      adj[a].push(b); adj[b].push(a);
+    }
+    return { edges, adj };
+  }
+  for (let r = 0; r < GRID; r++) for (let c = 0; c < GRID; c++) {
+    if (c + 1 < GRID && !(c === RIVER_COL && !BRIDGE_ROWS.includes(r))) add(nid(r, c), nid(r, c + 1));
+    if (r + 1 < GRID) add(nid(r, c), nid(r + 1, c));
+  }
+  return { edges, adj };
+}
+function ekey(a, b) { return a < b ? a + "-" + b : b + "-" + a; }
+
+function freshState() {
+  const city = buildCity(), vehicles = [], stationNames = Object.keys(STATIONS);
+  let k = 0;
+  for (const [type, n] of Object.entries(FLEET_SIZE)) for (let i = 1; i <= n; i++) {
+    const st = stationNames[k++ % stationNames.length];
+    vehicles.push({ id: type.slice(0, 3).toUpperCase() + "-" + i, type, station: st, home: STATIONS[st], node: STATIONS[st],
+                    status: "available", inc: null, path: [STATIONS[st]], prog: 0, sceneUntil: 0 });
+  }
+  const vById = new Map(vehicles.map(v => [v.id, v]));
+  return { city, vehicles, vById, byId: new Map(), now: 0, incidents: [], log: [], feed: [], scheduled: [], gv: 0, cache: new Map(),
+           bridgeClosed: false, traffic: false, calls: 0, merged: 0, ignored: 0, tracked: null, drill: false, nextInc: 1, nextCall: 1,
+           mine: [], feedback: loadFeedback(), overrides: 0, reportTimes: [], crewSel: null };
+}
+
+/* ================================================================
+   ROUTING
+   ================================================================ */
+function dijkstra(src) {
+  const key = src + "@" + S.gv;
+  if (S.cache.has(key)) return S.cache.get(key);
+  const N = GRID * GRID, dist = new Float64Array(N).fill(Infinity), prev = new Int32Array(N).fill(-1), done = new Uint8Array(N);
+  dist[src] = 0;
+  const heap = [[0, src]];
+  const push = x => { heap.push(x); let i = heap.length - 1; while (i > 0) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
+  const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = 2*i+1, r = l+1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
+  while (heap.length) {
+    const [d, u] = pop();
+    if (done[u]) continue; done[u] = 1;
+    for (const v of S.city.adj[u]) {
+      const e = S.city.edges.get(ekey(u, v));
+      if (e.closed) continue;
+      const nd = d + e.time;
+      if (nd < dist[v]) { dist[v] = nd; prev[v] = u; push([nd, v]); }
+    }
+  }
+  const res = { dist, prev };
+  S.cache.set(key, res);
+  return res;
+}
+function pathToward(from, target) {           // path from `from` to `target`, using a tree rooted at target
+  const { dist, prev } = dijkstra(target);
+  if (!isFinite(dist[from])) return [from];
+  const p = [from];
+  let u = from;
+  while (u !== target) { u = prev[u]; p.push(u); }
+  return p;
+}
+function remainingTime(v) {
+  let t = 0;
+  for (let i = 0; i + 1 < v.path.length; i++) t += S.city.edges.get(ekey(v.path[i], v.path[i + 1])).time;
+  return Math.max(0, t - v.prog);
+}
+
+/* ================================================================
+   TRIAGE: rules (English, Hinglish, Hindi), with optional Claude
+   ================================================================ */
+const TYPE_KW = {
+  collapse: ["collaps","building fell","came down","rubble","fell down","wall fell","girr gay","gir gaya","gir gayi","makan gir","building gir","deewar","मकान गिर","इमारत गिर","गिर गया","गिर गई","दीवार","ढह","मलबा"],
+  fire: ["fire","flame","smoke","burning","aag","dhuan","jal raha","jal rahi","आग","धुआं","धुआँ","जल रहा","जल रही","लपट"],
+  gas_leak: ["gas","leak","cylinder","सिलेंडर","गैस","लीक"],
+  flood: ["flood","water","rising","drown","paani","pani bhar","baadh","doob","बाढ़","पानी","डूब"],
+  medical: ["fainted","not moving","fell","hurt","bleed","blood","breath","unconscious","broken","awake","heart","accident","chest pain","injur","chot","khoon","behosh","बेहोश","खून","चोट","सांस","साँस","दिल","एक्सीडेंट","घायल","हादसा"],
+};
+const SEV_KW = {
+  5: ["trapped","not breathing","unconscious","not moving","fanse","fase hue","phanse","behosh","saans nahi","फंसे","फँसे","फंस","बेहोश","सांस नहीं","साँस नहीं","many people","bahut log","बहुत लोग"],
+  4: ["spreading","bleeding","blood","getting worse","serious","fail raha","khoon","फैल","खून","गंभीर","तेजी से"],
+  3: ["hurt","broken","awake","injur","chot","चोट","घायल"],
+  2: ["crack","damage","दरार","नुकसान"],
+  1: ["blocked","power is gone","बिजली"],
+};
+const NEGATIONS = ["no one is hurt","nobody is hurt","nobody hurt","no one hurt","koi ghayal nahi","कोई घायल नहीं"];
+const NOISE = ["lol"," jk","just kidding","wrong number","testing","never mind","cricket score","what time","pressed the button","मज़ाक","गलती से"];
+const DEFAULT_SEV = { collapse: 4, fire: 3, gas_leak: 3, flood: 3, medical: 3 };
+const TYPES = Object.keys(TYPE_KW);
+const NUMW = { two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,do:2,teen:3,char:4,chaar:4,paanch:5,panch:5,
+               "दो":2,"तीन":3,"चार":4,"पांच":5,"पाँच":5,"छह":6,"सात":7,"आठ":8,"नौ":9,"दस":10 };
+
+const devaDigits = s => s.replace(/[०-९]/g, d => "०१२३४५६७८९".indexOf(d));
+const norm = s => " " + devaDigits(String(s)).toLowerCase().replace(/[“”"!?.,;:()]/g, " ").replace(/\s+/g, " ").trim() + " ";
+
+function lev(a, b) {
+  if (a === b) return 0;
+  const m = a.length, n = b.length; if (!m || !n) return m || n;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j), cur = new Array(n + 1);
+  for (let i = 1; i <= m; i++) { cur[0] = i; for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); [prev, cur] = [cur, prev]; }
+  return prev[n];
+}
+const ratio = (a, b) => 1 - lev(a, b) / Math.max(a.length, b.length, 1);
+
+function kwHit(t, toks, kw) {
+  if (t.includes(kw)) return true;
+  if (kw.includes(" ") || kw.length < 5 || /[^\x00-\x7f]/.test(kw)) return false;
+  return toks.some(tok => Math.abs(tok.length - kw.length) <= 3 && (ratio(tok, kw) >= .84 || (tok.length > kw.length && ratio(tok.slice(0, kw.length), kw) >= .84)));
+}
+function extractPeople(t) {
+  const nums = (t.match(/\b\d{1,2}\b/g) || []).map(Number).filter(n => n > 0 && n < 60);
+  for (const tok of t.split(" ")) if (NUMW[tok]) nums.push(NUMW[tok]);
+  return nums.length ? Math.max(...nums) : 1;
+}
+function extractRule(text) {
+  let t = norm(text);
+  for (const n of NEGATIONS) t = t.split(n).join(" nobodyhurt ");
+  const toks = t.split(" ").filter(Boolean);
+  if (NOISE.some(n => t.includes(n))) return { relevant: false };
+  const sc = {};
+  for (const ty of TYPES) sc[ty] = TYPE_KW[ty].filter(k => kwHit(t, toks, k)).length;
+  const best = Math.max(...Object.values(sc));
+  if (best === 0) return { relevant: false };
+  const type = TYPES.find(ty => sc[ty] === best);
+  const levels = Object.entries(SEV_KW).filter(([, kws]) => kws.some(k => kwHit(t, toks, k))).map(([l]) => +l);
+  if (t.includes("nobodyhurt")) levels.push(2);
+  const severity = levels.length ? Math.max(...levels) : DEFAULT_SEV[type];
+  return { relevant: true, type, severity, people: extractPeople(t), via: "rules" };
+}
+
+function matchLocation(text) {
+  const t = norm(text);
+  for (const [a, place] of ALIASES) {
+    if (/[^\x00-\x7f]/.test(a) ? t.includes(a) : new RegExp("(^|[^a-z0-9])" + a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "([^a-z0-9]|$)").test(t))
+      return { place, node: PLACE[place].node, score: 100, conf: "high" };
+  }
+  // fuzzy: short spans of the report against English aliases
+  const toks = t.trim().split(" ");
+  let best = null;
+  for (let i = 0; i < toks.length; i++) for (let n = 1; n <= 3 && i + n <= toks.length; n++) {
+    const span = toks.slice(i, i + n).join(" ");
+    if (span.length < 4) continue;
+    for (const [a, place] of ALIASES) {
+      if (/[^\x00-\x7f]/.test(a) || a.length < 4) continue;
+      const r = ratio(span, a);
+      if (r >= .74 && (!best || r > best.r)) best = { r, place };
+    }
+  }
+  if (!best) return { place: null, node: null, score: 0, conf: "unknown" };
+  return { place: best.place, node: PLACE[best.place].node, score: Math.round(best.r * 100), conf: best.r >= .86 ? "high" : "medium" };
+}
+function suggestLandmarks(text, k = 4) {
+  const t = norm(text).trim();
+  return LANDMARKS.map(l => ({ name: l.name, r: Math.max(...l.aliases.filter(a => !/[^\x00-\x7f]/.test(a)).map(a =>
+    Math.max(...t.split(" ").map(w => ratio(w, a.split(" ")[0])))), 0) }))
+    .sort((a, b) => b.r - a.r).slice(0, k).map(x => x.name);
+}
+
+/* ---- Claude-assisted triage (only on explicit "Send report") ---- */
+let sample = null;
+(async () => {
+  try {
+    if (window.claude && typeof window.claude.use === "function") {
+      sample = await window.claude.use("sample");
+      if (sample) $("#aiRow").hidden = false;
+    }
+  } catch (e) { sample = null; }
+})();
+
+async function extractClaude(text, hintPlace) {
+  const prompt = `You are the triage desk of an emergency dispatch training simulation for an Indian city.
+Read one caller report. It may be English, Hindi (Devanagari) or Hinglish, and may contain speech-to-text mistakes.
+Reply with ONLY a JSON object, no other text:
+{"relevant": true|false, "type": "collapse"|"fire"|"gas_leak"|"flood"|"medical", "severity": 1-5, "people": integer,
+ "landmark": exact name from the list below or null, "summary": one short English sentence of what happened and where}
+Severity guide: 5 = life in danger now (trapped, not breathing, unconscious). 4 = serious harm or spreading danger (fire spreading, heavy bleeding).
+3 = injury but stable. 2 = damage, nobody hurt. 1 = information only. If torn between two levels, choose the higher one.
+relevant = false for pranks, questions, wrong numbers or no emergency. Never invent a landmark that is not in the list; use null if unsure.
+Landmarks: ${LANDMARKS.map(l => l.name).join("; ")}
+Landmark the caller selected in the app: ${hintPlace || "none"}
+Report (between the markers):
+<<<${text.slice(0, 1200)}>>>`;
+  const d = await sample.json(prompt, { modelTier: "quick" });
+  if (!d || typeof d !== "object") throw new Error("bad");
+  if (!d.relevant) return { relevant: false, via: "claude" };
+  if (!TYPES.includes(d.type)) throw new Error("type");
+  return { relevant: true, type: d.type, severity: Math.min(5, Math.max(1, parseInt(d.severity) || 3)),
+           people: Math.max(1, parseInt(d.people) || 1), landmark: PLACE[d.landmark] ? d.landmark : null,
+           summary: typeof d.summary === "string" ? d.summary.slice(0, 160) : "", via: "claude" };
+}
+
+/* ================================================================
+   INCIDENTS: create, join, dispatch
+   ================================================================ */
+const W = CONFIG.weights;
+const priority = inc => W.severity * inc.severity + W.people * Math.min(inc.people, 10) + W.wait * Math.min(Math.max(0, S.now - inc.created), W.wait_cap);
+const targetFor = inc => inc.severity >= 4 ? CONFIG.targets.severe : CONFIG.targets.other;
+const missing = inc => { const m = {}; for (const [k, n] of Object.entries(inc.needs)) { const left = n - inc.assigned[k].size; if (left > 0) m[k] = left; } return m; };
+const jacc = (a, b) => { const A = new Set(norm(a).trim().split(" ")), B = new Set(norm(b).trim().split(" ")); let i = 0; A.forEach(x => B.has(x) && i++); return i / (A.size + B.size - i || 1); };
+
+function say(text, kind = "dispatch") { S.log.unshift({ t: S.now, text, kind }); S.log.length = Math.min(S.log.length, 60); }
+
+function handleCall(text, f, loc, source) {
+  S.calls++;
+  const call = { id: "C" + String(S.nextCall++).padStart(3, "0"), t: S.now, text, source, via: f.via };
+  const entry = { ...call, out: "", cls: "" };
+  S.feed.unshift(entry); S.feed.length = Math.min(S.feed.length, 40);
+  if (!f.relevant) { S.ignored++; entry.out = "Ignored: not an emergency"; entry.cls = "ign"; return null; }
+  // join an open incident nearby?
+  const recent = S.incidents.filter(i => i.status !== "closed" && S.now - i.lastCall <= 30 && COMPATIBLE[i.type].includes(f.type));
+  let target = null;
+  if (loc.node != null) {
+    const cands = recent.filter(i => i.node != null && blocks(i.node, loc.node) <= 2)
+      .map(i => ({ i, s: .5 * (1 - blocks(i.node, loc.node) / 3) + .2 * (i.type === f.type ? 1 : .5) + .3 * Math.max(...i.calls.map(c => jacc(c.text, text))) }))
+      .sort((a, b) => b.s - a.s);
+    if (cands.length && (cands[0].s >= .6 || cands[0].i.place === loc.place)) target = cands[0].i;
+  } else {
+    target = recent.find(i => i.calls.some(c => jacc(c.text, text) >= .7)) || null;
+  }
+  if (target) {
+    attach(target, call, f, loc);
+    S.merged++;
+    entry.out = `Joined ${target.id}, now ${target.calls.length} callers`; entry.cls = "join";
+    return target;
+  }
+  const inc = newIncident(f, loc);
+  attach(inc, call, f, loc);
+  entry.out = loc.node != null ? `New ${inc.id}: ${TYPE_NAME[f.type].toLowerCase()}, severity ${inc.severity}, ${inc.place}` : `New ${inc.id}: location unknown, call-back needed`;
+  entry.cls = loc.node != null ? "new" : "loc";
+  return inc;
+}
+function newIncident(f, loc) {
+  const inc = { id: "INC-" + String(S.nextInc++).padStart(3, "0"), node: loc.node, place: loc.place, type: f.type, severity: f.severity,
+    people: f.people, needs: vehiclesNeeded(f.type, f.severity), created: S.now, lastCall: S.now, calls: [], typesSeen: [], placesSeen: [],
+    assigned: { ambulance: new Set(), fire_truck: new Set(), rescue: new Set() }, active: new Set(), firstArrival: null,
+    status: loc.node != null ? "open" : "needs_location", contradictions: [], summary: f.summary || "", conf: loc.conf, closedAt: null,
+    assignedAt: null, mine: false, feedback: null, blocked: new Set(), notes: [], confirmed: false, wasUnknown: loc.node == null,
+    locFixedBy: null, locFixedMin: null, mergedInto: null };
+  S.incidents.push(inc); S.byId.set(inc.id, inc);
+  return inc;
+}
+function attach(inc, call, f, loc) {
+  if (inc.calls.length) {
+    if (f.type !== inc.type) inc.contradictions.push(`${call.id}: caller describes ${TYPE_NAME[f.type].toLowerCase()}, not ${TYPE_NAME[inc.type].toLowerCase()}`);
+    if (f.severity !== inc.severity) inc.contradictions.push(`${call.id}: caller suggests severity ${f.severity}, earlier ${inc.severity}`);
+    if (Math.abs(f.people - inc.people) >= 2) inc.contradictions.push(`${call.id}: caller says ${f.people} people, earlier ${inc.people}`);
+    if (loc.place && inc.place && loc.place !== inc.place) inc.contradictions.push(`${call.id}: caller says ${loc.place}, earlier ${inc.place}`);
+  }
+  inc.calls.push(call);
+  inc.typesSeen.push(f.type);
+  if (loc.place) {
+    inc.placesSeen.push(loc.place);
+    inc.place = mode(inc.placesSeen); inc.node = PLACE[inc.place].node;
+    if (inc.status === "needs_location") inc.status = "open";
+  }
+  inc.type = mode(inc.typesSeen);
+  inc.severity = Math.max(inc.severity, f.severity);
+  inc.people = Math.max(inc.people, f.people);
+  const nn = vehiclesNeeded(inc.type, inc.severity);
+  for (const k of new Set([...Object.keys(inc.needs), ...Object.keys(nn)])) inc.needs[k] = Math.max(inc.needs[k] || 0, nn[k] || 0);
+  if (f.summary && !inc.summary) inc.summary = f.summary;
+  inc.lastCall = S.now;
+}
+function mode(arr) { const c = {}; arr.forEach(x => c[x] = (c[x] || 0) + 1); return Object.keys(c).sort((a, b) => c[b] - c[a])[0]; }
+
+function dispatchStep() {
+  const waiting = S.incidents.filter(i => i.status === "open" && i.node != null && Object.keys(missing(i)).length)
+    .sort((a, b) => priority(b) - priority(a));
+  for (const inc of waiting) {
+    for (const [vtype, n] of Object.entries(missing(inc))) {
+      for (let k = 0; k < n; k++) {
+        if (!sendOne(inc, vtype)) { if (inc.severity === 5) redirectOne(inc, vtype); break; }
+      }
+    }
+  }
+}
+function sendOne(inc, vtype) {
+  const { dist } = dijkstra(inc.node);
+  const free = S.vehicles.filter(v => v.type === vtype && v.status === "available" && isFinite(dist[v.node]) && !inc.blocked.has(v.id))
+    .sort((a, b) => dist[a.node] - dist[b.node]);
+  if (!free.length) return false;
+  const v = free[0], runner = free[1];
+  claim(v, inc);
+  let msg = `${v.id} sent to ${inc.id} (${TYPE_NAME[inc.type].toLowerCase()}, severity ${inc.severity}) at ${inc.place}, about ${Math.round(dist[v.node])} min by road.`;
+  if (runner) {
+    if (blocks(runner.node, inc.node) < blocks(v.node, inc.node)) msg += ` ${runner.id} looks closer on the map but needs ${Math.round(dist[runner.node])} min by road.`;
+    else msg += ` Next best: ${runner.id}, ${Math.round(dist[runner.node])} min.`;
+  }
+  say(msg);
+  return true;
+}
+function claim(v, inc) {
+  if (inc.assignedAt == null) inc.assignedAt = S.now;
+  v.status = "en_route"; v.inc = inc.id; v.prog = 0; v.path = pathToward(v.node, inc.node);
+  inc.assigned[v.type].add(v.id); inc.active.add(v.id);
+}
+function redirectOne(inc, vtype) {
+  const { dist } = dijkstra(inc.node);
+  const opts = S.vehicles.filter(v => v.type === vtype && v.status === "en_route").map(v => ({ v, old: S.byId.get(v.inc) }))
+    .filter(o => o.old && o.old.severity <= 2 && isFinite(dist[o.v.node])).sort((a, b) => dist[a.v.node] - dist[b.v.node]);
+  if (!opts.length) return false;
+  const { v, old } = opts[0];
+  old.assigned[vtype].delete(v.id); old.active.delete(v.id);
+  claim(v, inc);
+  say(`${v.id} redirected from ${old.id} (severity ${old.severity}) to ${inc.id} (severity 5) at ${inc.place}, about ${Math.round(dist[v.node])} min.`, "redirect");
+  return true;
+}
+
+function move() {
+  for (const v of S.vehicles) {
+    if (v.status === "on_scene") {
+      if (S.now >= v.sceneUntil) {
+        const inc = S.byId.get(v.inc);
+        if (inc) {
+          inc.active.delete(v.id);
+          if (!inc.active.size && !Object.keys(missing(inc)).length) {
+            inc.status = "closed"; inc.closedAt = S.now; say(`${inc.id} at ${inc.place} handled and closed.`, "close");
+            if (!inc.mine && !inc.mergedInto) simulateFeedback(inc);
+          }
+        }
+        v.status = "returning"; v.inc = null; v.prog = 0; v.path = pathToward(v.node, v.home);
+      }
+      continue;
+    }
+    if (v.status !== "en_route" && v.status !== "returning") continue;
+    let budget = 1;
+    while (budget > 0 && v.path.length > 1) {
+      const e = S.city.edges.get(ekey(v.path[0], v.path[1]));
+      if (e.closed) { v.path = pathToward(v.path[0], v.path[v.path.length - 1]); v.prog = 0; if (v.path.length === 1) break; continue; }
+      const left = e.time - v.prog;
+      if (budget >= left) { budget -= left; v.prog = 0; v.path.shift(); v.node = v.path[0]; }
+      else { v.prog += budget; budget = 0; }
+    }
+    if (v.path.length === 1) {
+      if (v.status === "en_route") {
+        const inc = S.byId.get(v.inc);
+        v.status = "on_scene"; v.sceneUntil = S.now + SCENE_MIN[inc.type];
+        if (inc.firstArrival == null) inc.firstArrival = S.now;
+        say(`${v.id} arrived at ${inc.place} for ${inc.id}.`, "arrive");
+      } else { v.status = "available"; v.node = v.home; }
+    }
+  }
+}
+
+function applyRoadEvent(kind, on) {
+  if (kind === "bridge") {
+    S.bridgeClosed = on;
+    S.city.edges.get(ekey(...MAIN_BRIDGE)).closed = on;
+    say(on ? "ROAD EVENT: Main Bridge closed. Vehicles re-routed over the other bridges." : "ROAD EVENT: Main Bridge reopened.", "event");
+  } else {
+    S.traffic = on;
+    for (const e of S.city.edges.values()) {
+      const [r1, c1] = rc(e.a), [r2, c2] = rc(e.b);
+      if (Math.max(r1, r2) < TRAFFIC_N && Math.max(c1, c2) < TRAFFIC_N) e.time = on ? e.base * 3 : e.base;
+    }
+    say(on ? "ROAD EVENT: heavy traffic in the north-west, roads 3× slower there." : "ROAD EVENT: north-west traffic cleared.", "event");
+  }
+  S.gv++; S.cache.clear();
+  for (const v of S.vehicles) if ((v.status === "en_route" || v.status === "returning") && v.path.length > 1) { v.path = pathToward(v.path[0], v.path[v.path.length - 1]); v.prog = 0; }
+}
+
+/* ================================================================
+   DRILL: messy synthetic calls (ported from the notebook generator)
+   ================================================================ */
+const WHAT = { collapse: ["the building fell down","a wall collapsed","the whole house came down","building collapsed"],
+  fire: ["there is a fire","big fire","flames everywhere","the house is on fire","lots of smoke and a gas smell"],
+  gas_leak: ["strong gas smell","gas is leaking","a cylinder is leaking gas"],
+  flood: ["water is rising fast","the street is flooded","flood water is entering houses"],
+  medical: ["someone fainted and is not moving","an old man fell","a woman is hurt badly","my father fell"] };
+const SEVP = { 5: ["people are trapped inside","someone is not breathing","kids are trapped","a man is unconscious"],
+  4: ["it is spreading fast","someone is bleeding badly","there is a lot of blood","it is getting worse"],
+  3: ["he hurt his leg","she is awake but hurt","i think his arm is broken"], 2: ["no one is hurt i think","there are cracks in the walls"] };
+const LOCT = ["near the {a}","behind {a}","opposite the {a}","next to {a}","right by the {a}","in front of {a}","at {a}"];
+const OPEN = ["help!! ","hello hello ","please help ","PLEASE ","","oh god ","hello?? is this emergency "];
+const CLOSE = [" come fast"," please hurry"," hurry pls",""," send someone"," please please"];
+const NOISEC = ["lol my friend is stuck at the {a} jk","is the {a} open today?","wrong number sorry","can you tell me the cricket score","testing testing 123"];
+const MIX = { collapse: .35, fire: .2, gas_leak: .12, medical: .25, flood: .08 };
+const SEVC = { collapse: [3,4,5,5], fire: [3,4,4,5], gas_leak: [2,3,4], flood: [2,3,4,5], medical: [3,3,4,5] };
+
+function startDrill() {
+  const rng = mulberry32((Date.now() % 100000) | 0), pick = a => a[Math.floor(rng() * a.length)];
+  const engAliases = l => l.aliases.filter(a => !/[^\x00-\x7f]/.test(a));
+  const places = [...LANDMARKS].sort(() => rng() - .5).slice(0, 12);
+  let count = 0;
+  places.forEach((pl, k) => {
+    let r = rng(), type = "medical";
+    for (const [t, p] of Object.entries(MIX)) { if ((r -= p) <= 0) { type = t; break; } }
+    const sev = pick(SEVC[type]), people = sev === 5 ? 3 + Math.floor(rng() * 7) : 1 + Math.floor(rng() * 3);
+    const nCalls = sev === 5 ? 3 + Math.floor(rng() * 3) : sev === 4 ? 1 + Math.floor(rng() * 2) : 1;
+    let t = S.now + 1 + (k < 3 ? rng() * 4 : Math.min(-Math.log(1 - rng()) * 14, 70));
+    for (let c = 0; c < nCalls; c++) {
+      const s2 = Math.min(5, Math.max(1, sev + (rng() < .7 ? 0 : rng() < .5 ? -1 : 1)));
+      const parts = [pick(WHAT[type]), pick(LOCT).replace("{a}", pick(engAliases(rng() < .12 ? pick(LANDMARKS) : pl))), pick(SEVP[s2] || SEVP[3])];
+      if (people > 1) parts.push(pick([`${people} people inside`, `maybe ${people} people`, `around ${people} ppl`]));
+      let text = pick(OPEN) + parts.join(pick([", ", " ", "... ", "!! "])) + pick(CLOSE);
+      if (rng() < .15) text = text.toUpperCase();
+      S.scheduled.push({ t: Math.round(t), text, source: "drill" }); count++;
+      t += -Math.log(1 - rng()) * 3;
+    }
+  });
+  for (let i = 0; i < 4; i++) S.scheduled.push({ t: S.now + Math.round(rng() * 60), text: pick(NOISEC).replace("{a}", pick(engAliases(pick(LANDMARKS)))), source: "drill" });
+  S.scheduled.sort((a, b) => a.t - b.t);
+  S.drill = true;
+  say(`DRILL: earthquake hits the city. ${count + 4} calls expected over the next hour.`, "event");
+  toast("Earthquake drill started: calls will arrive over the next simulated hour");
+}
+
+/* ================================================================
+   CLOCK
+   ================================================================ */
+let speed = 1, running = true, timer = null;
+function tick() {
+  S.now++;
+  while (S.scheduled.length && S.scheduled[0].t <= S.now) {
+    const c = S.scheduled.shift(), f = extractRule(c.text);
+    handleCall(c.text, f, f.relevant ? matchLocation(c.text) : { node: null }, c.source);
+  }
+  dispatchStep();
+  move();
+  render();
+}
+document.addEventListener("visibilitychange", () => setTimer());   // stop ticking while the tab is hidden
+function setTimer() {
+  clearInterval(timer); timer = null;
+  if (document.hidden) return;
+  document.documentElement.style.setProperty("--tick", (1000 / speed) + "ms");
+  if (running) timer = setInterval(tick, 1000 / speed);
+}
+
+/* ================================================================
+   RENDER
+   ================================================================ */
+const $ = s => document.querySelector(s);
+const SVGNS = "http://www.w3.org/2000/svg";
+const el = (tag, attrs = {}, parent) => { const e = document.createElementNS(SVGNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; };
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const SEVCOL = s => `var(--s${s})`;
+/* Replace a panel's HTML only when it actually changed: avoids re-layout and keeps keyboard focus. */
+const setHTML = (node, html) => { if (node && node.__h !== html) { node.innerHTML = html; node.__h = html; } };
+let layers = {}, vehEls = {};
+
+function buildMap() {
+  const svg = $("#map"); svg.innerHTML = "";
+  vehEls = {};
+  const W = OFF * 2 + (GRID - 1) * CELL;
+  svg.setAttribute("viewBox", `0 0 ${W} ${W}`);
+  // blocks
+  let blk = "";
+  for (let r = 0; r < GRID - 1; r++) for (let c = 0; c < GRID - 1; c++) {
+    if (c === RIVER_COL) continue;
+    blk += `M${OFF + c * CELL + 4.5} ${OFF + r * CELL + 4.5}h${CELL - 9}v${CELL - 9}h${-(CELL - 9)}z`;
+  }
+  el("path", { d: blk, fill: "var(--block)", stroke: "var(--block)", "stroke-width": 3, "stroke-linejoin": "round" }, svg);
+  el("rect", { x: OFF + RIVER_COL * CELL + 4, y: 0, width: CELL - 8, height: W, fill: "var(--river)" }, svg);
+  let rd = "", br = "";
+  for (const e of S.city.edges.values()) {
+    const [x1, y1] = px(e.a), [x2, y2] = px(e.b), seg = `M${x1} ${y1}L${x2} ${y2}`;
+    if (rc(e.a)[1] === RIVER_COL && rc(e.b)[1] === RIVER_COL + 1) br += seg; else rd += seg;
+  }
+  el("path", { d: rd, stroke: "var(--road)", "stroke-width": 2.2, "stroke-linecap": "round", fill: "none" }, svg);
+  el("path", { d: br, stroke: "var(--muted)", "stroke-width": 5, fill: "none" }, svg);
+  layers.zone = el("g", {}, svg);
+  layers.closed = el("g", {}, svg);
+  layers.labels = el("g", {}, svg);
+  layers.dots = el("g", {}, svg);
+  for (const l of LANDMARKS) {
+    const [x, y] = px(l.node), nearRight = rc(l.node)[1] >= GRID - 4;
+    const d = el("circle", { cx: x, cy: y, r: 2.4, fill: "var(--label)" }, layers.dots);
+    el("title", {}, d).textContent = l.name;
+    const t = el("text", { x: nearRight ? x - 4 : x + 4, y: y - 4, class: "lm-label", "text-anchor": nearRight ? "end" : "start" }, layers.labels);
+    t.textContent = l.name;
+  }
+  // a crowded city (the notebook's has 50 landmarks) starts with names hidden; dots and tooltips stay
+  const showLabels = LANDMARKS.length <= 35;
+  layers.labels.style.display = showLabels ? "" : "none";
+  $("#labelsBtn").setAttribute("aria-pressed", String(showLabels));
+  layers.routes = el("g", { fill: "none" }, svg);
+  layers.stations = el("g", {}, svg);
+  layers.inc = el("g", {}, svg);
+  layers.inc.addEventListener("keydown", e => {               // one delegated handler instead of two per incident
+    const g = e.target.closest("[data-inc]");
+    if (g && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openDrawer(g.dataset.inc); }
+  });
+  layers.veh = el("g", {}, svg);
+  for (const [name, node] of Object.entries(STATIONS)) {
+    const [x, y] = px(node);
+    el("path", { d: `M${x} ${y - 11} l9.5 5.5v11l-9.5 5.5-9.5-5.5v-11z`, fill: "var(--ink)" }, layers.stations);
+    const t = el("text", { x, y: y + 4, "text-anchor": "middle", "font-size": 10, "font-weight": 800, fill: "var(--surface)", id: "st-" + name }, layers.stations);
+    const lbl = el("text", { x, y: y + 25, "text-anchor": "middle", class: "st-label" }, layers.stations); lbl.textContent = name;
+  }
+  for (const v of S.vehicles) {
+    const g = el("g", { class: "veh" }, layers.veh);
+    if (v.type === "ambulance") { el("rect", { x: -6, y: -6, width: 12, height: 12, rx: 3, fill: "var(--amb)", stroke: "var(--ink)", "stroke-width": 1.2 }, g); el("path", { d: "M-1 -4h2v3h3v2h-3v3h-2v-3h-3v-2h3z", fill: "var(--siren)" }, g); }
+    else if (v.type === "fire_truck") el("path", { d: "M0 -7 7 6H-7z", fill: "var(--fire)", stroke: "var(--ink)", "stroke-width": 1.2 }, g);
+    else el("path", { d: "M0 -7 7 0 0 7 -7 0z", fill: "var(--rescue)", stroke: "var(--ink)", "stroke-width": 1.2 }, g);
+    const tt = el("title", {}, g); tt.textContent = v.id;
+    vehEls[v.id] = g;
+  }
+}
+
+function vehPos(v, k) {
+  let [x, y] = px(v.path[0]);
+  if ((v.status === "en_route" || v.status === "returning") && v.path.length > 1) {
+    const e = S.city.edges.get(ekey(v.path[0], v.path[1])), f = Math.min(1, v.prog / e.time), [x2, y2] = px(v.path[1]);
+    x += (x2 - x) * f; y += (y2 - y) * f;
+  }
+  const j = (k % 3 - 1) * 4, jj = (Math.floor(k / 3) % 3 - 1) * 4;
+  return [x + j, y + jj];
+}
+
+function renderMap() {
+  const roadSig = `${S.traffic}|${S.bridgeClosed}`;
+  if (layers.zone.__sig !== roadSig) {
+  layers.zone.__sig = roadSig;
+  layers.zone.innerHTML = ""; layers.closed.innerHTML = "";
+  if (S.traffic) el("rect", { x: OFF - 12, y: OFF - 12, width: (TRAFFIC_N - 1) * CELL + 24, height: (TRAFFIC_N - 1) * CELL + 24, rx: 10, fill: "var(--amber)", opacity: .14 }, layers.zone);
+  if (S.bridgeClosed) {
+    const [x1, y1] = px(MAIN_BRIDGE[0]), [x2, y2] = px(MAIN_BRIDGE[1]);
+    el("line", { x1, y1, x2, y2, stroke: "var(--siren)", "stroke-width": 6, "stroke-linecap": "round" }, layers.closed);
+    el("path", { d: `M${(x1 + x2) / 2 - 6} ${y1 - 6}l12 12m0-12-12 12`, stroke: "var(--surface)", "stroke-width": 2.4 }, layers.closed);
+  }
+  }
+  const moving = S.vehicles.filter(v => v.status === "en_route" && v.path.length > 1);
+  const crewSel = document.body.dataset.role === "crew" ? S.crewSel : null;
+  const routeSig = (crewSel || "") + "#" + moving.map(v => v.id + ":" + v.path[0] + ":" + v.path.length).join("|");
+  if (layers.routes.__sig !== routeSig) {
+    layers.routes.__sig = routeSig; layers.routes.innerHTML = "";
+    for (const v of moving) {
+      const mine = v.id === crewSel;
+      el("polyline", { points: v.path.map(px).map(p => p.join(",")).join(" "), stroke: mine ? "var(--siren)" : "var(--ink)",
+        "stroke-width": mine ? 4 : 1.4, "stroke-dasharray": mine ? "none" : "3 4", opacity: mine ? .9 : crewSel ? .25 : .55, "stroke-linejoin": "round" }, layers.routes);
+    }
+  }
+  S.vehicles.forEach((v, k) => {
+    const g = vehEls[v.id], [x, y] = vehPos(v, k), tr = `translate(${x}px, ${y}px)`, op = v.status === "available" ? "0" : v.status === "returning" ? "0.55" : "1";
+    if (g.__tr !== tr) { g.style.transform = tr; g.__tr = tr; }
+    if (g.__op !== op) { g.style.opacity = op; g.__op = op; }
+  });
+  for (const [name, node] of Object.entries(STATIONS)) {
+    const t = $("#st-" + CSS.escape(name)), n = String(S.vehicles.filter(v => v.status === "available" && v.home === node).length);
+    if (t.textContent !== n) t.textContent = n;
+  }
+  const shown = S.incidents.filter(i => i.node != null && !(i.status === "closed" && S.now - i.closedAt > 20));
+  const incSig = shown.map(i => [i.id, i.node, i.severity, i.calls.length, i.status, i.firstArrival == null, i.id === S.tracked].join(",")).join("|");
+  if (layers.inc.__sig === incSig) return;
+  layers.inc.__sig = incSig; layers.inc.innerHTML = "";
+  for (const inc of shown) {
+    const [x, y] = px(inc.node), r = Math.min(7 + 2.2 * inc.calls.length, 18);
+    const g = el("g", { class: "incident", tabindex: 0, role: "button", "data-inc": inc.id, "aria-label": `${inc.id}, ${TYPE_NAME[inc.type]}, severity ${inc.severity}, ${inc.place}` }, layers.inc);
+    const waiting = inc.status === "open" && inc.firstArrival == null;
+    if (waiting) el("circle", { cx: x, cy: y, r, fill: SEVCOL(inc.severity), class: "inc-pulse" }, g);
+    el("circle", { cx: x, cy: y, r, fill: SEVCOL(inc.severity), opacity: inc.status === "closed" ? .25 : .9,
+      stroke: inc.id === S.tracked ? "var(--ink)" : "var(--surface)", "stroke-width": inc.id === S.tracked ? 3 : 2 }, g);
+    const t = el("text", { x, y: y + 4, "text-anchor": "middle", "font-size": 11, "font-weight": 800, fill: "#fff" }, g);
+    t.textContent = inc.calls.length;
+  }
+}
+
+function fmtClock(m) { const h = Math.floor(m / 60), mm = m % 60; return String(h).padStart(2, "0") + ":" + String(mm).padStart(2, "0"); }
+function statusLine(inc) {
+  if (inc.status === "needs_location") return "Location unknown: call-back needed";
+  if (inc.status === "closed") return "Handled and closed";
+  const parts = [];
+  for (const id of inc.active) {
+    const v = S.vById.get(id);
+    if (v.status === "en_route") parts.push(`${v.id} ${Math.max(1, Math.round(remainingTime(v)))} min away`);
+    else if (v.status === "on_scene") parts.push(`${v.id} on scene`);
+  }
+  const m = missing(inc);
+  const miss = Object.entries(m).map(([k, n]) => `${n} ${VNAME[k]}${n > 1 ? "s" : ""}`);
+  if (miss.length) parts.push("waiting for " + miss.join(", "));
+  return parts.join("; ") || "Assessing";
+}
+
+function renderSide() {
+  $("#clock").textContent = fmtClock(S.now);
+  const open = S.incidents.filter(i => i.status !== "closed");
+  const waiting = open.filter(i => i.status === "open" && Object.keys(missing(i)).length);
+  $("#kOpen .v").textContent = open.length;
+  $("#kWait .v").textContent = waiting.length;
+  $("#kWait").classList.toggle("alert", waiting.some(i => i.severity >= 4));
+  const sev = S.incidents.filter(i => i.severity >= 4 && i.firstArrival != null);
+  $("#kResp .v").textContent = sev.length ? (sev.reduce((a, i) => a + i.firstArrival - i.created, 0) / sev.length).toFixed(1) : "–";
+  $("#kCalls .v").textContent = S.calls;
+  $("#kCalls .l").textContent = `Calls handled, ${S.merged} merged, ${S.ignored} ignored`;
+  setHTML($("#fleetBars"), Object.entries(FLEET_SIZE).map(([t, n]) => {
+    const free = S.vehicles.filter(v => v.type === t && v.status === "available").length;
+    return `<div class="fb"><span>${t === "fire_truck" ? "Fire" : t === "ambulance" ? "Ambulance" : "Rescue"}</span><span class="bar"><i style="width:${100 * free / n}%;${free === 0 ? "background:var(--siren)" : ""}"></i></span><span>${free}/${n}</span></div>`;
+  }).join(""));
+
+  const q = [...open].sort((a, b) => (a.status === "needs_location") - (b.status === "needs_location") || priority(b) - priority(a));
+  $("#qCount").textContent = q.length;
+  setHTML($("#queue"), q.length ? q.map(i => `
+    <li><button class="qitem" data-inc="${i.id}">
+      <span class="sev" style="background:${i.status === "needs_location" ? "var(--muted)" : SEVCOL(i.severity)}">${i.severity}<small>sev</small></span>
+      <span class="qmain"><b>${TYPE_NAME[i.type]} ${i.place ? "at " + esc(i.place) : ""}</b><span>${esc(statusLine(i))}</span></span>
+      <span class="qside"><b>${S.now - i.created}m</b>${i.calls.length} caller${i.calls.length > 1 ? "s" : ""}</span>
+    </button></li>`).join("") : `<li class="empty">No open incidents. Send a report, or start the earthquake drill to see the city under pressure.</li>`);
+
+  $("#cCount").textContent = S.calls;
+  const srcIcon = s => s === "voice" ? "🎙 voice" : s === "typed" ? "⌨ typed" : "☎ drill call";
+  setHTML($("#feed"), S.feed.slice(0, 15).map(c => `<li><div class="meta"><span>${fmtClock(c.t)}</span><span>${srcIcon(c.source)}</span>${c.via === "claude" ? '<span class="badge">Claude</span>' : ""}</div>
+    <q>${esc(c.text.length > 140 ? c.text.slice(0, 140) + "…" : c.text)}</q><div class="out ${c.cls}">${esc(c.out)}</div></li>`).join("") || `<li class="empty">Calls appear here as they arrive.</li>`);
+  setHTML($("#log"), S.log.slice(0, 25).map(l => `<li><time>${fmtClock(l.t)}</time><span class="${l.kind === "event" || l.kind === "redirect" ? "ev" : l.kind === "override" ? "ov" : ""}">${esc(l.text)}</span></li>`).join("") || `<li class="empty">Every dispatch decision is explained here.</li>`);
+}
+
+function render() { renderMap(); renderSide(); renderAlerts(); renderTrack(); renderMine(); renderInsights(); renderCrew(); if (drawerId && $("#drawer").open) fillDrawer(drawerId); }
+
+/* ================================================================
+   CITIZEN TRACKING + VOICE OUT
+   ================================================================ */
+let lastSpoken = "";
+const MSG = {
+  "en-IN": { received: id => `Your report is received. Reference ${id}. Help is being arranged.`, assigned: (v, m) => `${v} is on the way. About ${m} minutes.`,
+             arrived: () => "Help has arrived at the scene.", needloc: () => "We could not find your location. Please choose the nearest landmark.",
+             thanks: () => "Thank you for your feedback." },
+  "hi-IN": { received: id => `आपकी शिकायत मिल गई है। संदर्भ ${id}. मदद भेजी जा रही है।`, assigned: (v, m) => `${v} रास्ते में है। लगभग ${m} मिनट।`,
+             arrived: () => "मदद मौके पर पहुँच गई है।", needloc: () => "हमें आपकी जगह नहीं मिली। कृपया सबसे नज़दीकी जगह चुनें।",
+             thanks: () => "आपकी प्रतिक्रिया के लिए धन्यवाद।" },
+};
+function speak(key, ...args) {
+  if (!$("#speakTog").checked || !("speechSynthesis" in window)) return;
+  const lang = $("#langSel").value, text = MSG[lang][key](...args);
+  if (text === lastSpoken) return;
+  lastSpoken = text;
+  try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang = lang; u.rate = 1; speechSynthesis.speak(u); } catch (e) {}
+}
+let lastStage = -1;
+function renderTrack() {
+  if (!S.tracked) return;
+  let inc = S.byId.get(S.tracked);
+  if (!inc) return;
+  if (inc.mergedInto) {                                   // the dispatcher joined this report to another incident
+    toast(`Your report ${inc.id} was joined with ${inc.mergedInto}, which already has help planned.`);
+    S.tracked = inc.mergedInto; lastStage = -1; inc = S.byId.get(S.tracked);
+  }
+  $("#trackId").textContent = inc.id;
+  const enroute = [...inc.active].map(id => S.vById.get(id)).filter(v => v && v.status === "en_route");
+  const onscene = inc.firstArrival != null;
+  const assignedAny = Object.values(inc.assigned).some(x => x.size);
+  const flags = [true, assignedAny || onscene, enroute.length > 0 || onscene, onscene];
+  const stage = inc.status === "needs_location" ? 0 : flags.lastIndexOf(true);
+  const times = [inc.created, inc.assignedAt, inc.assignedAt, inc.firstArrival];
+  [...$("#steps").children].forEach((li, k) => {
+    li.className = k < stage || (k === 3 && stage === 3) ? "done" : k === stage ? "now" : "";
+    li.querySelector("time").textContent = k <= stage && times[k] != null && inc.status !== "needs_location" ? "at " + fmtClock(times[k]) : "";
+  });
+  const eta = enroute.length ? Math.max(1, Math.round(Math.min(...enroute.map(remainingTime)))) : null;
+  if (inc.status === "needs_location") {
+    $("#trackTitle").textContent = "Where are you?";
+    $("#etaNum").textContent = "?"; $("#etaTxt").textContent = "we need a landmark to send help";
+  } else if (onscene) {
+    $("#trackTitle").textContent = inc.status === "closed" ? "Incident handled" : "Help has arrived";
+    $("#etaNum").textContent = "✓"; $("#etaTxt").textContent = `arrived ${inc.firstArrival - inc.created} min after your report`;
+  } else if (eta != null) {
+    $("#trackTitle").textContent = "Help is on the way";
+    $("#etaNum").textContent = eta; $("#etaTxt").textContent = `min until ${enroute.sort((a, b) => remainingTime(a) - remainingTime(b))[0].id} arrives`;
+  } else {
+    $("#trackTitle").textContent = "Help is being arranged";
+    $("#etaNum").textContent = "…"; $("#etaTxt").textContent = Object.keys(missing(inc)).length ? "all nearby vehicles are busy; you are in the priority queue" : "assessing";
+  }
+  const assigned = Object.values(inc.assigned).flatMap(s => [...s]);
+  setHTML($("#facts"), `
+    <dt>Emergency</dt><dd>${TYPE_NAME[inc.type]}</dd>
+    <dt>Severity</dt><dd><span style="color:${SEVCOL(inc.severity)}">●</span> ${inc.severity} of 5</dd>
+    <dt>People</dt><dd>about ${inc.people}</dd>
+    <dt>Location</dt><dd>${inc.place ? esc(inc.place) : "not found yet"}</dd>
+    <dt>Vehicles</dt><dd>${assigned.length ? assigned.join(", ") : "being assigned"}</dd>
+    ${inc.calls.length > 1 ? `<dt>Other callers</dt><dd>${inc.calls.length - 1} reported the same incident</dd>` : ""}`);
+  if (stage !== lastStage) {
+    if (stage === 2 && enroute.length) speak("assigned", enroute[0].id.replace("AMB", "Ambulance").replace("FIR", "Fire truck").replace("RES", "Rescue team"), eta);
+    if (stage === 3) speak("arrived");
+    lastStage = stage;
+  }
+  renderLocAsk(inc);
+  renderFeedbackForm(inc);
+}
+function renderLocAsk(inc) {
+  const box = $("#locAsk");
+  if (inc.status !== "needs_location") { box.innerHTML = ""; return; }
+  if (box.dataset.for === inc.id && box.innerHTML) return;
+  box.dataset.for = inc.id;
+  const sugg = suggestLandmarks(inc.calls[0].text);
+  box.innerHTML = `<div class="locask"><p>We couldn’t place your report on the map. Which landmark is closest?</p>
+    <div class="chips">${sugg.map(s => `<button class="chip" data-loc="${esc(s)}">${esc(s)}</button>`).join("")}</div>
+    <div class="field" style="margin-top:8px"><label for="locSel2">Or pick from all landmarks</label>
+    <select id="locSel2"><option value="">Choose a landmark</option>${LANDMARKS.map(l => `<option>${esc(l.name)}</option>`).join("")}</select></div></div>`;
+}
+function setLocation(incId, place, by = "caller") {
+  const inc = S.byId.get(incId);
+  if (!inc || !PLACE[place]) return;
+  inc.place = place; inc.node = PLACE[place].node; inc.placesSeen.push(place); inc.status = "open"; inc.conf = "confirmed";
+  if (!inc.locFixedBy) { inc.locFixedBy = by; inc.locFixedMin = S.now - inc.created; }
+  say(by === "caller" ? `${inc.id} located by the caller in the app: ${place}.` : `${inc.id} located by dispatcher call-back: ${place}.`, "event");
+  $("#locAsk").innerHTML = "";
+  dispatchStep(); render();
+}
+
+/* ================================================================
+   TRACKING: your reports, track by reference
+   ================================================================ */
+function trackIncident(id) {
+  const inc = S.byId.get(id);
+  if (!inc) return false;
+  S.tracked = id; lastStage = -1; lastSpoken = "";
+  $("#reportForm").hidden = true; $("#track").classList.add("on");
+  $("#viaTxt").innerHTML = inc.mine ? $("#viaTxt").innerHTML : `<span class="badge">Tracking by reference</span>`;
+  setRole("citizen");
+  render();
+  return true;
+}
+function renderMine() {
+  const box = $("#mine");
+  const mine = S.mine.map(id => S.byId.get(id)).filter(Boolean);
+  box.hidden = !mine.length;
+  if (!mine.length) return;
+  const label = i => i.status === "needs_location" ? "needs location" : i.status === "closed" ? "closed"
+    : i.firstArrival != null ? "help arrived" : [...i.active].length ? "on the way" : "waiting";
+  setHTML($("#mineList"), mine.map(i => `<button class="chip" data-track="${i.id}" aria-pressed="${i.id === S.tracked}">
+    <i style="background:${SEVCOL(i.severity)}"></i>${i.id} <small>${label(i)}${i.feedback ? ", rated " + i.feedback.rating + "★" : ""}</small></button>`).join(""));
+}
+function trackByRef() {
+  const raw = $("#refIn").value.trim().toUpperCase();
+  if (!raw) { $("#refMsg").textContent = "Enter the reference number you were given, for example INC-004."; return; }
+  const num = raw.match(/\d+/);
+  const id = num ? "INC-" + String(+num[0]).padStart(3, "0") : raw;
+  if (trackIncident(id)) { $("#refMsg").textContent = ""; $("#refIn").value = ""; }
+  else $("#refMsg").textContent = `No report ${id} in this session. Check the number, or send a new report.`;
+}
+$("#refBtn").addEventListener("click", trackByRef);
+$("#refIn").addEventListener("keydown", e => { if (e.key === "Enter") trackByRef(); });
+
+/* ================================================================
+   FEEDBACK: citizen ratings (saved in this browser) + simulated drill ratings
+   ================================================================ */
+const FB_KEY = "sahayak112_feedback_v1";
+const FB_TAGS = ["Fast response", "Crew was helpful", "Kept me informed", "Took too long", "Hard to explain location", "App was hard to use"];
+function loadFeedback() {
+  try { const d = JSON.parse(localStorage.getItem(FB_KEY) || "[]"); return Array.isArray(d) ? d.map(f => ({ ...f, earlier: true })) : []; }
+  catch (e) { return []; }
+}
+function storeFeedback() {
+  try { localStorage.setItem(FB_KEY, JSON.stringify(S.feedback.filter(f => f.source === "citizen").map(({ earlier, ...f }) => f).slice(-500))); } catch (e) {}
+}
+function feedbackRecord(inc, rating, tags, comment, source) {
+  const resp = inc.firstArrival != null ? inc.firstArrival - inc.created : null;
+  return { incident: inc.id, minute: S.now, rating, tags, comment, response_min: resp, target_min: targetFor(inc),
+           severity: inc.severity, type: inc.type, place: inc.place || "", source, saved_at: new Date().toISOString() };
+}
+const SIM_COMMENTS = { good: ["They came quickly, thank you.", "The ambulance crew was calm and kind.", "Very fast, the team knew the way."],
+  bad: ["We waited too long, the road near the bridge was blocked.", "Nobody told us how long it would take.", "Help came but very late."] };
+function simulateFeedback(inc) {
+  if (!S.drill || inc.firstArrival == null || Math.random() < .25) return;   // not every caller rates
+  const resp = inc.firstArrival - inc.created, tgt = targetFor(inc);
+  let r = resp <= tgt ? 5 : resp <= tgt * 1.5 ? 4 : resp <= tgt * 2 ? 3 : 2;
+  if (Math.random() < .3) r += Math.random() < .5 ? -1 : 1;
+  r = Math.max(1, Math.min(5, r));
+  const tags = [];
+  if (resp <= tgt) tags.push("Fast response");
+  if (resp > tgt * 1.5) tags.push("Took too long");
+  if (Math.random() < .35) tags.push(r >= 4 ? "Crew was helpful" : "Kept me informed");
+  if (inc.contradictions.some(c => /caller says [A-Z]/.test(c))) tags.push("Hard to explain location");
+  const comment = Math.random() < .4 ? (r >= 4 ? SIM_COMMENTS.good : SIM_COMMENTS.bad)[Math.floor(Math.random() * 3)] : "";
+  const fb = feedbackRecord(inc, r, tags, comment, "simulated");
+  inc.feedback = fb; S.feedback.push(fb);
+}
+
+let fbDraft = { rating: 0, tags: new Set() };
+function renderFeedbackForm(inc) {
+  const box = $("#fbBox");
+  if (inc.firstArrival == null) { box.innerHTML = ""; box.dataset.for = ""; return; }
+  if (inc.feedback && inc.feedback.source !== "citizen") { box.innerHTML = ""; box.dataset.for = ""; return; }
+  if (inc.feedback) {
+    if (box.dataset.for !== inc.id + "-done") {
+      box.dataset.for = inc.id + "-done";
+      box.innerHTML = `<div class="thanks">Thank you. You rated this response ${inc.feedback.rating} out of 5. Your feedback helps the control room improve.</div>`;
+    }
+    return;
+  }
+  if (!inc.mine) { box.innerHTML = ""; box.dataset.for = ""; return; }
+  if (box.dataset.for === inc.id) return;            // keep the form while the person is filling it in
+  box.dataset.for = inc.id;
+  fbDraft = { rating: 0, tags: new Set() };
+  box.innerHTML = `<div class="fbcard">
+    <h3>How was the response?</h3>
+    <p class="hint">Rate the help you received. It takes ten seconds.</p>
+    <div class="stars" role="radiogroup" aria-label="Rating out of 5">
+      ${[1,2,3,4,5].map(n => `<button role="radio" aria-checked="false" aria-label="${n} star${n > 1 ? "s" : ""}" data-star="${n}">★</button>`).join("")}
+    </div>
+    <p class="hint" id="starTxt">Tap a star</p>
+    <div class="chips fbtags">${FB_TAGS.map(t => `<button class="chip" data-fbtag="${t}" aria-pressed="false">${t}</button>`).join("")}</div>
+    <div class="fbrow">
+      <label class="sr" for="fbText">Comment</label>
+      <textarea id="fbText" placeholder="Anything else? Speak or type (optional)"></textarea>
+      <button class="mini-mic" id="fbMic" aria-label="Dictate comment" title="Dictate comment">
+        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-6a3.5 3.5 0 0 0-7 0v6A3.5 3.5 0 0 0 12 15Zm6-3.5a1 1 0 1 0-2 0 4 4 0 0 1-8 0 1 1 0 1 0-2 0 6 6 0 0 0 5 5.91V20H8.5a1 1 0 1 0 0 2h7a1 1 0 1 0 0-2H13v-2.59A6 6 0 0 0 18 11.5Z"/></svg>
+      </button>
+    </div>
+    <p class="hint" id="fbState" aria-live="polite"></p>
+    <button class="btn primary send" id="fbSend" style="margin-top:8px">Send feedback</button>
+  </div>`;
+}
+const STAR_TXT = ["", "Very poor", "Poor", "Okay", "Good", "Excellent"];
+document.addEventListener("click", e => {
+  const st = e.target.closest("[data-star]");
+  if (st) {
+    fbDraft.rating = +st.dataset.star;
+    document.querySelectorAll("[data-star]").forEach(b => { const on = +b.dataset.star <= fbDraft.rating; b.classList.toggle("on", on); b.setAttribute("aria-checked", String(+b.dataset.star === fbDraft.rating)); });
+    $("#starTxt").textContent = STAR_TXT[fbDraft.rating];
+  }
+  const tg = e.target.closest("[data-fbtag]");
+  if (tg) { const t = tg.dataset.fbtag, on = !fbDraft.tags.has(t); on ? fbDraft.tags.add(t) : fbDraft.tags.delete(t); tg.setAttribute("aria-pressed", String(on)); }
+  if (e.target.closest("#fbSend")) submitFeedback();
+  if (e.target.closest("#fbMic")) dictate($("#fbText"), $("#fbMic"), $("#fbState"));
+  const tr = e.target.closest("[data-track]"); if (tr) trackIncident(tr.dataset.track);
+});
+function submitFeedback() {
+  const inc = S.byId.get(S.tracked);
+  if (!inc) return;
+  if (!fbDraft.rating) { $("#starTxt").textContent = "Choose 1 to 5 stars first."; return; }
+  const fb = feedbackRecord(inc, fbDraft.rating, [...fbDraft.tags], $("#fbText").value.trim().slice(0, 500), "citizen");
+  inc.feedback = fb; S.feedback.push(fb); storeFeedback();
+  say(`Feedback for ${inc.id}: ${fb.rating}/5${fb.tags.length ? " (" + fb.tags.join(", ") + ")" : ""}.`, "feedback");
+  speak("thanks");
+  toast("Feedback sent. Thank you.");
+  render();
+}
+
+/* dictation for the feedback comment (separate from the main report microphone) */
+let dict = null;
+function dictate(ta, btn, state) {
+  if (dict) { dict.stop(); return; }
+  if (!SR) { state.textContent = "Voice typing isn’t supported in this browser. Type your comment instead."; return; }
+  try {
+    dict = new SR(); dict.lang = $("#langSel").value; dict.interimResults = true; dict.continuous = true;
+    const base = ta.value.trim() ? ta.value.trim() + " " : "";
+    dict.onresult = e => { let t = ""; for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript + (e.results[i].isFinal ? " " : ""); ta.value = base + t; };
+    dict.onerror = e => { state.textContent = e.error === "not-allowed" || e.error === "service-not-allowed" ? "Microphone access is blocked. Type your comment instead." : e.error === "no-speech" ? "I didn’t hear anything." : "Voice typing stopped."; };
+    dict.onend = () => { btn.classList.remove("on"); dict = null; if (state.textContent === "Listening…") state.textContent = ""; };
+    dict.start(); btn.classList.add("on"); state.textContent = "Listening…";
+  } catch (e) { dict = null; state.textContent = "Voice typing couldn’t start. Type your comment instead."; }
+}
+
+/* ================================================================
+   INSIGHTS: response tracking table + feedback dashboard + CSV export
+   ================================================================ */
+let downloads = null;
+(async () => { try { if (window.claude && typeof window.claude.use === "function") downloads = await window.claude.use("downloads"); } catch (e) { downloads = null; } })();
+async function saveFile(name, text) {
+  if (downloads) {
+    try { await downloads.save({ filename: name, data: text }); return; }
+    catch (e) { if (e && e.code && e.code !== "unavailable") { toast("Download cancelled"); return; } }
+  }
+  try {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob(["\ufeff" + text], { type: "text/csv;charset=utf-8" }));
+    a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  } catch (e) { toast("This view can’t save files. Open the page in its own browser tab to export."); }
+}
+const csvCell = v => { const s = v == null ? "" : Array.isArray(v) ? v.join("; ") : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+const toCSV = (cols, rows) => [cols.join(","), ...rows.map(r => cols.map(c => csvCell(r[c])).join(","))].join("\n");
+
+function responseRows() {
+  return S.incidents.map(i => {
+    const resp = i.firstArrival != null ? i.firstArrival - i.created : null;
+    return { incident: i.id, type: i.type, severity: i.severity, place: i.place || "", callers: i.calls.length, reported_min: i.created,
+             assigned_min: i.assignedAt, arrived_min: i.firstArrival, closed_min: i.closedAt, response_min: resp, target_min: targetFor(i),
+             within_target: resp == null ? "" : resp <= targetFor(i) ? "yes" : "no", status: i.status,
+             reported_by_you: i.mine ? "yes" : "no", rating: i.feedback ? i.feedback.rating : "" };
+  });
+}
+$("#expResp").addEventListener("click", () => saveFile("sahayak_response_log.csv",
+  toCSV(["incident","type","severity","place","callers","reported_min","assigned_min","arrived_min","closed_min","response_min","target_min","within_target","status","reported_by_you","rating"], responseRows())));
+$("#expFb").addEventListener("click", () => {
+  if (!S.feedback.length) { toast("No feedback yet. Rate one of your reports, or run the drill."); return; }
+  saveFile("sahayak_feedback.csv", toCSV(["incident","minute","rating","tags","comment","response_min","target_min","severity","type","place","source","saved_at"], S.feedback));
+});
+
+let insightsVisible = !("IntersectionObserver" in window);
+if (!insightsVisible) new IntersectionObserver(es => {
+  insightsVisible = es.some(e => e.isIntersecting);
+  if (insightsVisible && S) renderInsights();
+}).observe(document.querySelector(".insights"));
+function renderInsights() {
+  if (!insightsVisible) return;                     // nothing on screen to update
+  renderTargets();
+  const rows = [...S.incidents].sort((a, b) => b.created - a.created);
+  const done = rows.filter(i => i.firstArrival != null);
+  const inTgt = done.filter(i => i.firstArrival - i.created <= targetFor(i)).length;
+  const sevDone = done.filter(i => i.severity >= 4);
+  $("#respSum").textContent = rows.length
+    ? `${done.length} of ${rows.length} incidents reached. ${done.length ? Math.round(100 * inTgt / done.length) : 0}% within target `
+      + `(severe ${CONFIG.targets.severe} min, others ${CONFIG.targets.other} min). `
+      + (sevDone.length ? `Severe average ${(sevDone.reduce((a, i) => a + i.firstArrival - i.created, 0) / sevDone.length).toFixed(1)} min.` : "")
+    : "Each incident’s timeline appears here: when it was reported, when help was assigned, when it arrived and when it closed.";
+  const t = v => v == null ? "–" : fmtClock(v);
+  const rel = (v, i) => v == null ? "–" : `+${v - i.created}m`;
+  setHTML($("#respBody"), rows.map(i => {
+    const resp = i.firstArrival != null ? i.firstArrival - i.created : null, tgt = targetFor(i);
+    const live = resp == null && i.status !== "closed" ? S.now - i.created : null;
+    const target = i.mergedInto ? `<span class="pend">merged into ${i.mergedInto}</span>` : resp != null ? (resp <= tgt ? `<span class="ok">met</span>` : `<span class="late">missed by ${resp - tgt}m</span>`)
+      : live > tgt ? `<span class="late">overdue</span>` : `<span class="pend">${tgt - live}m left</span>`;
+    return `<tr class="${i.mine ? "mine-row" : ""}" data-inc="${i.id}" style="cursor:pointer">
+      <td>${i.id}${i.mine ? " (you)" : ""}</td><td>${TYPE_NAME[i.type]}</td>
+      <td class="num"><span style="color:${SEVCOL(i.severity)}">●</span> ${i.severity}</td><td>${esc(i.place || "unknown")}</td>
+      <td class="num">${t(i.created)}</td><td class="num">${rel(i.assignedAt, i)}</td><td class="num">${rel(i.firstArrival, i)}</td>
+      <td class="num">${rel(i.closedAt, i)}</td><td class="num">${resp == null ? "–" : resp + " min"}</td><td>${target}</td>
+      <td>${i.feedback ? "★".repeat(i.feedback.rating) : ""}</td></tr>`;
+  }).join("") || `<tr><td colspan="11" class="pend">No incidents yet.</td></tr>`);
+
+  const fb = S.feedback;
+  if (!fb.length) {
+    $("#fbAvg").textContent = "–"; $("#fbCount").textContent = "no ratings yet";
+    setHTML($("#fbDist"), ""); setHTML($("#fbTags"), ""); setHTML($("#fbRvr"), "");
+    setHTML($("#fbComments"), `<li class="empty" style="border-top:0">Ratings appear when citizens rate a response. Send a report and rate it once help arrives, or run the drill to see simulated ratings.</li>`);
+    return;
+  }
+  const avg = fb.reduce((a, f) => a + f.rating, 0) / fb.length;
+  const nCit = fb.filter(f => f.source === "citizen").length;
+  $("#fbAvg").textContent = avg.toFixed(1);
+  $("#fbCount").textContent = `${fb.length} rating${fb.length > 1 ? "s" : ""}, ${nCit} from citizens, ${fb.length - nCit} simulated`;
+  setHTML($("#fbDist"), [5,4,3,2,1].map(n => { const c = fb.filter(f => f.rating === n).length;
+    return `<div><span>${n}★</span><span class="bar"><i style="width:${100 * c / fb.length}%"></i></span><span>${c}</span></div>`; }).join(""));
+  const tc = {}; fb.forEach(f => (f.tags || []).forEach(x => tc[x] = (tc[x] || 0) + 1));
+  setHTML($("#fbTags"), Object.entries(tc).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<span>${esc(k)} ${v}</span>`).join(""));
+  const buckets = [["0–10 min", 0, 10], ["11–20 min", 11, 20], ["21–30 min", 21, 30], ["over 30 min", 31, 1e9]];
+  setHTML($("#fbRvr"), `<p>Average rating by response time</p>` + buckets.map(([lbl, lo, hi]) => {
+    const g = fb.filter(f => f.response_min != null && f.response_min >= lo && f.response_min <= hi);
+    const a = g.length ? g.reduce((x, f) => x + f.rating, 0) / g.length : 0;
+    return `<div><span>${lbl}</span><span class="bar"><i style="width:${a * 20}%"></i></span><span>${g.length ? a.toFixed(1) + "★" : "–"}</span></div>`;
+  }).join(""));
+  setHTML($("#fbComments"), fb.filter(f => f.comment).slice(-5).reverse().map(f =>
+    `<li><div class="meta">${"★".repeat(f.rating)} ${f.incident} ${f.source === "citizen" ? "citizen" : "simulated"}${f.earlier ? ", earlier session" : ""}</div>“${esc(f.comment)}”</li>`).join("")
+    || `<li class="empty" style="border-top:0">No written comments yet.</li>`);
+}
+
+/* ================================================================
+   VOICE INPUT
+   ================================================================ */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, listening = false, usedVoice = false;
+function setListening(on) {
+  listening = on;
+  $("#sosWrap").classList.toggle("listening", on);
+  $("#micLabel").textContent = on ? "Listening…" : "Tap to speak";
+  $("#micSub").textContent = on ? "tap again to stop" : "voice report";
+  $("#micBtn").setAttribute("aria-label", on ? "Stop voice report" : "Start voice report");
+}
+function voiceMsg(text, err) { const v = $("#voiceState"); v.textContent = text; v.classList.toggle("err", !!err); }
+/* Voice engine.
+   Browsers end speech recognition after a few seconds of silence ("no-speech"). Instead of giving up, we keep
+   listening for up to 30 seconds and restart quietly. A live level meter shows whether sound reaches the
+   microphone at all, so we can tell people exactly what to fix: no sound (wrong microphone or muted) versus
+   sound without words (too far, too noisy, or the wrong language selected). */
+const VOICE_MAX_MS = 30000;
+let vs = null;                      // the current listening session
+function meterStart() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return Promise.resolve();
+  return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
+    .then(stream => {
+      if (!vs) { stream.getTracks().forEach(t => t.stop()); return; }
+      const ctx = vs.ctx || new (window.AudioContext || window.webkitAudioContext)();
+      if (ctx.state === "suspended") ctx.resume().catch(() => {});
+      const src = ctx.createMediaStreamSource(stream), an = ctx.createAnalyser();
+      an.fftSize = 512; src.connect(an);
+      const buf = new Float32Array(an.fftSize), bars = [...document.querySelectorAll("#meter i")];
+      vs.audio = { stream, ctx };
+      const loop = () => {
+        if (!vs || !vs.audio) return;
+        an.getFloatTimeDomainData(buf);
+        let sum = 0; for (const x of buf) sum += x * x;
+        const rms = Math.sqrt(sum / buf.length);
+        vs.peak = Math.max(vs.peak, rms);
+        if (rms > 0.02) vs.loudMs += 16;
+        const lvl = Math.min(1, rms * 12);
+        bars.forEach((bar, k) => { const w = 1 - Math.abs(k - 4) / 5; bar.style.height = (4 + 18 * lvl * w * (0.7 + Math.random() * 0.3)) + "px"; });
+        requestAnimationFrame(loop);
+      };
+      loop();
+    })
+    .catch(err => { if (vs) vs.meterError = err && err.name; });
+}
+function meterStop() {
+  if (vs && vs.audio) { vs.audio.stream.getTracks().forEach(t => t.stop()); vs.audio = null; }
+  if (vs && vs.ctx) { try { vs.ctx.close(); } catch (e) {} vs.ctx = null; }
+  document.querySelectorAll("#meter i").forEach(bar => bar.style.height = "4px");
+  $("#meter").classList.remove("on");
+}
+function voiceHelp(kind) {
+  const box = $("#voiceHelp");
+  const tips = {
+    silent: `<b>No sound is reaching the microphone.</b><ol>
+      <li>Click the 🔒 icon at the left of the address bar, open <i>Site settings</i>, and check that the microphone is allowed and the right one is selected.</li>
+      <li>Check that your microphone is not muted in your computer’s sound settings, and that no other app (Zoom, Meet) is using it.</li>
+      <li>Or type your report in the box below: it works just as well.</li></ol>`,
+    words: `<b>I can hear sound but can’t make out words.</b><ol>
+      <li>Speak a little slower, 15–30 cm from the microphone.</li>
+      <li>Check the <i>Voice language</i> above matches what you speak (English or हिन्दी).</li>
+      <li>Move away from loud noise, or type your report below.</li></ol>`,
+    network: `<b>Voice typing could not reach the speech service.</b><ol>
+      <li>Voice typing in Chrome and Edge needs an internet connection; some browsers (for example Brave) switch it off.</li>
+      <li>Try Chrome or Edge, use the <i>Record your voice</i> box if the app shows one, or type your report below.</li></ol>`,
+    blocked: `<b>The microphone is blocked for this page.</b><ol>
+      <li>Click the 🔒 icon in the address bar and allow the microphone, then reload the page.</li>
+      <li>If the app runs inside another page, open it in its own browser tab, or type your report below.</li></ol>`,
+  };
+  box.hidden = !kind; box.innerHTML = kind ? tips[kind] : "";
+}
+function stopVoice() {
+  if (!vs) return;
+  vs.userStopped = true;
+  try { rec && rec.stop(); } catch (e) {}
+}
+function finishVoice() {
+  const sess = vs; meterStop(); vs = null; setListening(false);
+  if (!sess) return;
+  const text = $("#reportText").value.trim();
+  if (sess.gotWords && text) { voiceMsg("Check the text below, add a landmark if needed, then send."); voiceHelp(null); return; }
+  if (sess.fatal) return;                                   // a specific error message is already showing
+  if (sess.meterError === "NotAllowedError") { voiceMsg("The microphone is blocked for this page.", true); voiceHelp("blocked"); }
+  else if (sess.peak < 0.01 && sess.audio !== undefined) { voiceMsg("No sound reached the microphone.", true); voiceHelp("silent"); }
+  else if (sess.loudMs > 400) { voiceMsg("I heard you, but couldn’t turn it into words.", true); voiceHelp("words"); }
+  else { voiceMsg("I didn’t hear anything. Tap the button and speak close to the microphone.", true); voiceHelp("silent"); }
+}
+function startVoice() {
+  if (!SR) { voiceMsg("Voice typing isn’t supported in this browser. Use Chrome, Edge or Safari, or type your report below.", true); $("#reportText").focus(); return; }
+  voiceHelp(null);
+  vs = { started: Date.now(), peak: 0, loudMs: 0, gotWords: false, userStopped: false, fatal: false, base: $("#reportText").value.trim() ? $("#reportText").value.trim() + " " : "", finals: "" };
+  $("#meter").classList.add("on");
+  // create the audio context inside the tap, so the browser lets it run
+  try { vs.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { vs.ctx = null; }
+  meterStart();
+  setListening(true);
+  voiceMsg("Speak now: what happened, where, and how many people.");
+  listenOnce();
+}
+function listenOnce() {
+  const sess = vs; if (!sess) return;
+  try {
+    rec = new SR();
+    rec.lang = $("#langSel").value; rec.interimResults = true; rec.continuous = true; rec.maxAlternatives = 1;
+    rec.onresult = e => {
+      if (vs !== sess) return;
+      let fin = "", interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) { const r = e.results[i]; if (r.isFinal) fin += r[0].transcript + " "; else interim += r[0].transcript; }
+      sess.finals += fin;
+      const text = (sess.base + sess.finals + interim).replace(/\s+/g, " ");
+      if (text.trim()) { $("#reportText").value = text; sess.gotWords = true; usedVoice = true; voiceHelp(null); }
+      voiceMsg(interim ? "Hearing you…" : "Got it. Keep talking, or tap the button to finish.");
+    };
+    rec.onerror = e => {
+      if (vs !== sess) return;
+      if (e.error === "no-speech" || e.error === "aborted") return;          // handled by the restart in onend
+      sess.fatal = true;
+      const kind = { "not-allowed": "blocked", "service-not-allowed": "blocked", "audio-capture": "silent", "network": "network" }[e.error];
+      voiceMsg({ blocked: "The microphone is blocked for this page.", silent: "No microphone was found or it is in use by another app.",
+                 network: "Voice typing couldn’t reach the speech service." }[kind] || "Voice typing stopped (" + e.error + ").", true);
+      voiceHelp(kind || null);
+    };
+    rec.onend = () => {
+      if (vs !== sess) return;
+      const elapsed = Date.now() - sess.started;
+      // Chrome stops after a pause or a few seconds of silence: keep going until the person taps stop
+      if (!sess.userStopped && !sess.fatal && elapsed < VOICE_MAX_MS) {
+        if (!sess.gotWords && elapsed > 7000 && sess.peak < 0.01 && sess.audio) voiceHelp("silent");
+        else if (!sess.gotWords && elapsed > 7000 && sess.loudMs > 600) voiceHelp("words");
+        voiceMsg(sess.gotWords ? "Still listening… tap the button when you have finished." : "Still listening… speak now.");
+        setTimeout(() => { if (vs === sess) listenOnce(); }, 150);
+        return;
+      }
+      finishVoice();
+    };
+    rec.start();
+  } catch (e) { sess.fatal = true; finishVoice(); voiceMsg("Voice typing couldn’t start. Type your report below instead.", true); }
+}
+$("#micBtn").addEventListener("click", () => { if (vs) stopVoice(); else startVoice(); });
+$("#langSel").addEventListener("change", () => { if (vs) stopVoice(); });
+
+/* ================================================================
+   SEND REPORT
+   ================================================================ */
+let reportStart = null;
+const markStart = () => { if (reportStart == null) reportStart = performance.now(); };
+["focus", "input"].forEach(ev => $("#reportText").addEventListener(ev, markStart));
+$("#micBtn").addEventListener("pointerdown", markStart);
+document.querySelectorAll("[data-add]").forEach(b => b.addEventListener("pointerdown", markStart));
+async function sendReport() {
+  if (vs) stopVoice();
+  const text = $("#reportText").value.trim(), hint = $("#lmSel").value;
+  if (!text) { voiceMsg("Say or type what is happening first.", true); $("#reportText").focus(); return; }
+  const btn = $("#sendBtn"); btn.disabled = true; btn.textContent = "Understanding your report…";
+  let f = null;
+  if (sample && $("#aiTog").checked) {
+    try { f = await extractClaude(text, hint); } catch (e) { f = null; if (e && e.code === "not_granted") { $("#aiTog").checked = false; } }
+  }
+  if (!f) f = extractRule(text);
+  btn.disabled = false; btn.textContent = "Send report";
+  if (!f.relevant) {
+    // real apps never drop a citizen report silently; treat as low-information medical call for a human check
+    if (!/lol|jk|wrong number|testing|cricket|just kidding/i.test(text)) f = { relevant: true, type: "medical", severity: 2, people: 1, via: f.via || "rules" };
+    else { handleCall(text, f, { node: null }, usedVoice ? "voice" : "typed"); render(); voiceMsg("This doesn’t look like an emergency, so no vehicle was sent.", true); return; }
+  }
+  let loc = { place: null, node: null, conf: "unknown" };
+  if (hint) loc = { place: hint, node: PLACE[hint].node, conf: "selected" };
+  else if (f.landmark) loc = { place: f.landmark, node: PLACE[f.landmark].node, conf: "high" };
+  else loc = matchLocation(text);
+  const inc = handleCall(text, f, loc, usedVoice ? "voice" : "typed");
+  inc.mine = true; if (!S.mine.includes(inc.id)) S.mine.push(inc.id);
+  if (reportStart != null) { S.reportTimes.push((performance.now() - reportStart) / 1000); reportStart = null; }
+  S.tracked = inc.id; lastStage = -1; lastSpoken = "";
+  $("#fbBox").dataset.for = "";
+  $("#reportForm").hidden = true; $("#track").classList.add("on");
+  $("#viaTxt").innerHTML = f.via === "claude" ? `<span class="badge">Understood by Claude</span>${f.summary ? " " + esc(f.summary) : ""}` : `<span class="badge">Rule-based triage</span>`;
+  if (inc.status === "needs_location") speak("needloc"); else speak("received", inc.id);
+  dispatchStep(); render();
+  if (matchMedia("(max-width:820px)").matches) window.scrollTo({ top: 0, behavior: "smooth" });
+}
+$("#sendBtn").addEventListener("click", sendReport);
+$("#reportText").addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) sendReport(); });
+$("#newReportBtn").addEventListener("click", () => {
+  S.tracked = null; $("#track").classList.remove("on"); $("#reportForm").hidden = false;
+  $("#reportText").value = ""; $("#lmSel").value = ""; usedVoice = false; voiceMsg(""); render();
+});
+$("#addInfoBtn").addEventListener("click", () => {
+  const inc = S.byId.get(S.tracked);
+  $("#track").classList.remove("on"); $("#reportForm").hidden = false;
+  $("#reportText").value = ""; usedVoice = false;
+  if (inc && inc.place) $("#lmSel").value = inc.place;
+  S.tracked = null;
+  voiceMsg("Add what has changed; it will be joined to your earlier report.");
+});
+document.querySelectorAll("[data-add]").forEach(b => b.addEventListener("click", () => {
+  const ta = $("#reportText"); ta.value = (ta.value.trim() ? ta.value.trim() + ". " : "") + b.dataset.add + " "; ta.focus();
+}));
+$("#lmSel").innerHTML += LANDMARKS.map(l => `<option>${esc(l.name)}</option>`).join("");
+document.addEventListener("click", e => {
+  const c = e.target.closest("[data-loc]"); if (c && S.tracked) setLocation(S.tracked, c.dataset.loc);
+  const q = e.target.closest("[data-inc]"); if (q && !e.target.closest("[data-track]")) openDrawer(q.dataset.inc);
+});
+document.addEventListener("change", e => { if (e.target.id === "locSel2" && e.target.value && S.tracked) setLocation(S.tracked, e.target.value); });
+
+/* ================================================================
+   INCIDENT DRAWER
+   ================================================================ */
+let drawerId = null;
+function openDrawer(id) { drawerId = id; fillDrawer(id); renderControls(id); if (!$("#drawer").open) $("#drawer").showModal(); }
+function fillDrawer(id) {
+  const inc = S.byId.get(id); if (!inc) return;
+  $("#dSev").style.background = SEVCOL(inc.severity); $("#dSev").innerHTML = `${inc.severity}<small>sev</small>`;
+  $("#dTitle").textContent = `${inc.id}: ${TYPE_NAME[inc.type]}`;
+  $("#dSub").textContent = `${inc.place || "Location unknown"}, reported at ${fmtClock(inc.created)}, priority ${Math.round(priority(inc))}`;
+  const veh = Object.entries(inc.assigned).flatMap(([t, s]) => [...s].map(id => { const v = S.vById.get(id); return `${id} (${VNAME[t]}, ${v.inc === inc.id ? v.status.replace("_", " ") : "done"})`; }));
+  setHTML($("#dInfo"), `
+    ${inc.confirmed ? `<p style="margin:0"><span class="badge" style="background:var(--go-soft);color:var(--go)">Confirmed by dispatcher</span></p>` : ""}
+    ${inc.mergedInto ? `<p style="margin:0"><span class="badge">Merged into ${inc.mergedInto}</span></p>` : ""}
+    ${inc.summary ? `<p style="margin:0"><span class="badge">Claude summary</span> ${esc(inc.summary)}</p>` : ""}
+    <dl class="facts"><dt>Status</dt><dd>${esc(statusLine(inc))}</dd><dt>People</dt><dd>about ${inc.people}</dd>
+      <dt>Needs</dt><dd>${Object.entries(inc.needs).map(([k, n]) => `${n} ${VNAME[k]}${n > 1 ? "s" : ""}`).join(", ")}</dd>
+      <dt>Assigned</dt><dd>${veh.join(", ") || "none yet"}</dd>
+      <dt>Timeline</dt><dd>reported ${fmtClock(inc.created)}${inc.assignedAt != null ? `, assigned +${inc.assignedAt - inc.created}m` : ""}${inc.firstArrival != null ? `, arrived +${inc.firstArrival - inc.created}m` : ""}${inc.closedAt != null ? `, closed +${inc.closedAt - inc.created}m` : ""}</dd>
+      <dt>Target</dt><dd>${targetFor(inc)} min${inc.firstArrival != null ? (inc.firstArrival - inc.created <= targetFor(inc) ? ", met" : ", missed") : ""}</dd>
+      ${inc.feedback ? `<dt>Feedback</dt><dd>${"★".repeat(inc.feedback.rating)} ${esc((inc.feedback.tags || []).join(", "))}${inc.feedback.comment ? ` “${esc(inc.feedback.comment)}”` : ""}</dd>` : ""}</dl>
+    <div><h3>Joined calls (${inc.calls.length})</h3><ul class="calls">${inc.calls.map(c => `<li><span class="hint">${fmtClock(c.t)} ${c.source}</span><br>“${esc(c.text)}”</li>`).join("")}</ul></div>
+    <div><h3>Where callers disagree</h3>${inc.contradictions.length ? `<ul class="warnlist">${inc.contradictions.map(c => `<li>${esc(c)}</li>`).join("")}</ul>` : `<p class="hint">No disagreements.</p>`}</div>
+    ${inc.notes.length ? `<div><h3>Dispatcher notes</h3><ul class="warnlist">${inc.notes.map(n => `<li>${fmtClock(n.t)} ${esc(n.text)}</li>`).join("")}</ul></div>` : ""}`);
+}
+$("#dClose").addEventListener("click", () => $("#drawer").close());
+$("#drawer").addEventListener("close", () => drawerId = null);
+
+/* ================================================================
+   DISPATCHER STAYS IN CHARGE: confirm, change, swap, merge, split, call back
+   ================================================================ */
+function override(inc, text, reason) {
+  S.overrides++;
+  inc.notes.push({ t: S.now, text: `${text} Reason: ${reason}` });
+  say(`OVERRIDE ${inc.id}: ${text} Reason: ${reason}`, "override");
+}
+function renderControls(id) {
+  const inc = S.byId.get(id), box = $("#dCtl");
+  if (!inc || inc.status === "closed") { box.innerHTML = ""; return; }
+  const free = inc.node == null ? [] : (() => {
+    const { dist } = dijkstra(inc.node);
+    return S.vehicles.filter(v => v.status === "available" && isFinite(dist[v.node])).sort((a, b) => dist[a.node] - dist[b.node])
+      .map(v => `<option value="${v.id}">${v.id}, ${VNAME[v.type]}, ${Math.round(dist[v.node])} min</option>`).join("");
+  })();
+  const others = S.incidents.filter(i => i !== inc && i.status !== "closed")
+    .sort((a, b) => (a.node == null || inc.node == null ? 99 : blocks(a.node, inc.node)) - (b.node == null || inc.node == null ? 99 : blocks(b.node, inc.node)))
+    .map(i => `<option value="${i.id}">${i.id}, ${TYPE_NAME[i.type].toLowerCase()} at ${esc(i.place || "unknown")}${i.node != null && inc.node != null ? `, ${blocks(i.node, inc.node)} blocks away` : ""}</option>`).join("");
+  const enroute = [...inc.active].map(v => S.vById.get(v)).filter(v => v && v.status === "en_route");
+  box.innerHTML = `<div class="ctl ctl-only">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+      <h3>Dispatcher actions</h3>
+      ${inc.confirmed ? `<span class="okmsg">✓ Confirmed</span>` : `<button class="btn" data-act="confirm">✓ Confirm the system’s plan</button>`}
+    </div>
+    <div><label for="ovReason">Reason for any change (kept in the decision log)</label>
+      <input id="ovReason" placeholder="For example: caller says the road at the bridge is blocked" maxlength="160"></div>
+    <div class="ctlgrid">
+      <div class="ctlbox"><div><label for="ovSev">Severity</label><select id="ovSev">${[5,4,3,2,1].map(n => `<option ${n === inc.severity ? "selected" : ""}>${n}</option>`).join("")}</select></div>
+        <button class="btn" data-act="sev">Change</button></div>
+      <div class="ctlbox"><div><label for="ovVeh">Send a specific vehicle</label><select id="ovVeh">${free || "<option value=''>No free vehicle</option>"}</select></div>
+        <button class="btn" data-act="send" ${free ? "" : "disabled"}>Send</button></div>
+      <div class="ctlbox"><div><label for="ovMerge">Same event as</label><select id="ovMerge">${others || "<option value=''>No other open incident</option>"}</select></div>
+        <button class="btn" data-act="merge" ${others ? "" : "disabled"}>Merge</button></div>
+      ${inc.calls.length >= 2 ? `<div class="ctlbox"><div><label>Last call is a different emergency</label><span class="hint">${esc(inc.calls[inc.calls.length - 1].id)}</span></div>
+        <button class="btn" data-act="split">Split it off</button></div>` : ""}
+      ${inc.status === "needs_location" ? `<div class="ctlbox"><div><label for="ovLoc">Location from call-back</label><select id="ovLoc">${LANDMARKS.map(l => `<option>${esc(l.name)}</option>`).join("")}</select></div>
+        <button class="btn" data-act="loc">Set</button></div>` : ""}
+    </div>
+    ${enroute.length ? `<div><label>Vehicles on the way</label>${enroute.map(v => `<div class="vrow"><span>${v.id}, ${Math.max(1, Math.round(remainingTime(v)))} min away</span>
+      <button class="btn" data-act="recall" data-v="${v.id}">Recall, send next best</button></div>`).join("")}</div>` : ""}
+    <p class="hint" id="ovMsg" aria-live="polite"></p>
+  </div>`;
+}
+function dispatcherAct(act, vid) {
+  const inc = S.byId.get(drawerId); if (!inc) return;
+  const reason = ($("#ovReason") || {}).value ? $("#ovReason").value.trim() : "";
+  const needsReason = ["sev", "send", "merge", "split", "recall"].includes(act);
+  const msg = (t, ok) => { const m = $("#ovMsg"); if (m) { m.textContent = t; m.className = ok ? "hint okmsg" : "hint errmsg"; } };
+  if (needsReason && !reason) { msg("Add a short reason first. Every change is logged with its reason.", false); $("#ovReason").focus(); return; }
+  if (act === "confirm") { inc.confirmed = true; say(`${inc.id} plan confirmed by dispatcher.`, "dispatch"); }
+  if (act === "sev") {
+    const n = +$("#ovSev").value; if (n === inc.severity) { msg("Severity is already " + n + ".", false); return; }
+    const old = inc.severity; inc.severity = n;
+    const nn = vehiclesNeeded(inc.type, n); inc.needs = { ...nn };
+    for (const k of Object.keys(inc.assigned)) if (inc.assigned[k].size > (inc.needs[k] || 0) && inc.assigned[k].size) inc.needs[k] = Math.max(inc.needs[k] || 0, [...inc.assigned[k]].filter(x => inc.active.has(x)).length);
+    override(inc, `severity changed from ${old} to ${n}.`, reason);
+  }
+  if (act === "send") {
+    const v = S.vById.get($("#ovVeh").value); if (!v || v.status !== "available") { msg("That vehicle is no longer free.", false); renderControls(inc.id); return; }
+    claim(v, inc); inc.blocked.delete(v.id);
+    inc.needs[v.type] = Math.max(inc.needs[v.type] || 0, inc.assigned[v.type].size);
+    override(inc, `${v.id} sent by dispatcher, about ${Math.max(1, Math.round(remainingTime(v)))} min away.`, reason);
+  }
+  if (act === "recall") {
+    const v = S.vById.get(vid); if (!v || v.inc !== inc.id) return;
+    inc.assigned[v.type].delete(v.id); inc.active.delete(v.id); inc.blocked.add(v.id);
+    v.status = "returning"; v.inc = null; v.prog = 0; v.path = pathToward(v.node, v.home);
+    override(inc, `${v.id} recalled; the next best vehicle will be sent.`, reason);
+  }
+  if (act === "merge") { const dst = S.byId.get($("#ovMerge").value); if (dst) { mergeInto(inc, dst, reason); drawerId = dst.id; } }
+  if (act === "split") splitLast(inc, reason);
+  if (act === "loc") { setLocation(inc.id, $("#ovLoc").value, "dispatcher"); }
+  dispatchStep(); render();
+  if (drawerId) { fillDrawer(drawerId); renderControls(drawerId); msg("Done. The decision log shows the change.", true); }
+}
+function mergeInto(src, dst, reason) {
+  for (const c of src.calls) dst.calls.push(c);
+  dst.typesSeen.push(...src.typesSeen); dst.contradictions.push(...src.contradictions, `${src.id} merged into this incident by the dispatcher`);
+  dst.severity = Math.max(dst.severity, src.severity); dst.people = Math.max(dst.people, src.people);
+  for (const k of new Set([...Object.keys(dst.needs), ...Object.keys(src.needs)])) dst.needs[k] = Math.max(dst.needs[k] || 0, src.needs[k] || 0);
+  for (const id of src.active) {
+    const v = S.vById.get(id); if (!v) continue;
+    v.inc = dst.id; dst.assigned[v.type].add(id); dst.active.add(id);
+    if (v.status === "en_route" && dst.node != null) { v.path = pathToward(v.node, dst.node); v.prog = 0; }
+  }
+  for (const k of Object.keys(dst.assigned)) dst.needs[k] = Math.max(dst.needs[k] || 0, 0);
+  dst.created = Math.min(dst.created, src.created); dst.lastCall = Math.max(dst.lastCall, src.lastCall);
+  if (dst.status === "needs_location" && src.node != null) { dst.place = src.place; dst.node = src.node; dst.status = "open"; }
+  src.active.clear(); src.status = "closed"; src.closedAt = S.now; src.mergedInto = dst.id;
+  if (src.mine) { dst.mine = true; S.mine = [...new Set(S.mine.map(id => id === src.id ? dst.id : id))]; }
+  override(dst, `${src.id} merged into ${dst.id} (same event).`, reason);
+}
+function splitLast(inc, reason) {
+  const call = inc.calls.pop(); inc.typesSeen.pop();
+  let f = extractRule(call.text);
+  if (!f.relevant) f = { relevant: true, type: inc.type, severity: inc.severity, people: 1 };
+  const loc = matchLocation(call.text);
+  const fresh = newIncident(f, loc); fresh.created = call.t;
+  attach(fresh, call, f, loc);
+  override(inc, `${call.id} split off into ${fresh.id} (a different emergency).`, reason);
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-act]");
+  if (b && $("#drawer").contains(b)) dispatcherAct(b.dataset.act, b.dataset.v);
+});
+
+/* ================================================================
+   ALERTS: only three kinds, so they are never ignored
+   ================================================================ */
+function renderAlerts() {
+  if (document.body.dataset.role !== "control") return;
+  const out = [];
+  const overdue = S.incidents.filter(i => i.status === "open" && i.severity >= 4 && i.firstArrival == null && S.now - i.created > targetFor(i))
+    .sort((a, b) => (S.now - b.created - targetFor(b)) - (S.now - a.created - targetFor(a)));
+  for (const i of overdue.slice(0, 2))
+    out.push(`<div class="alert"><span class="ic">!</span><div><b>${i.id}, severity ${i.severity} at ${esc(i.place)}</b> <span>waiting ${S.now - i.created} min, target ${targetFor(i)} min</span></div><button class="btn" data-inc="${i.id}">Open</button></div>`);
+  if (overdue.length > 2) out.push(`<div class="alert"><span class="ic">+${overdue.length - 2}</span><div><b>more severe incidents past their target</b> <span>see the priority queue</span></div><span></span></div>`);
+  const unknown = S.incidents.filter(i => i.status === "needs_location");
+  if (unknown.length) out.push(`<div class="alert loc"><span class="ic">?</span><div><b>${unknown.length === 1 ? unknown[0].id + " has" : unknown.length + " reports have"} no location</b> <span>call back and set a landmark</span></div><button class="btn" data-inc="${unknown[0].id}">Fix</button></div>`);
+  const low = Object.entries(FLEET_SIZE).map(([t, n]) => [t, n, S.vehicles.filter(v => v.type === t && v.status === "available").length]).filter(([, n, f]) => n > 1 && f <= 1);
+  if (low.length) out.push(`<div class="alert fleet"><span class="ic">${Math.min(...low.map(x => x[2]))}</span><div><b>Running low on vehicles</b> <span>${low.map(([t, n, f]) => `${f} of ${n} ${VNAME[t]}${n > 1 ? "s" : ""} free`).join(", ")}; new jobs of that kind will wait</span></div><span></span></div>`);
+  setHTML($("#alerts"), out.length ? out.join("") : `<span class="allclear">● All clear: no overdue severe incident, every report located, vehicles available</span>`);
+}
+
+/* ================================================================
+   FIELD CREW BRIEF
+   ================================================================ */
+const VICON = { ambulance: `<svg width="34" height="34" viewBox="-9 -9 18 18"><rect x="-7" y="-7" width="14" height="14" rx="3.5" fill="var(--amb)" stroke="var(--ink)" stroke-width="1.2"/><path d="M-1.2 -4.5h2.4v3.3h3.3v2.4h-3.3v3.3h-2.4v-3.3h-3.3v-2.4h3.3z" fill="var(--siren)"/></svg>`,
+  fire_truck: `<svg width="34" height="34" viewBox="-9 -9 18 18"><path d="M0 -7.5 7.5 6.5H-7.5z" fill="var(--fire)" stroke="var(--ink)" stroke-width="1.2"/></svg>`,
+  rescue: `<svg width="34" height="34" viewBox="-9 -9 18 18"><path d="M0 -7.5 7.5 0 0 7.5 -7.5 0z" fill="var(--rescue)" stroke="var(--ink)" stroke-width="1.2"/></svg>` };
+const VCOL = { ambulance: "var(--amb)", fire_truck: "var(--fire)", rescue: "var(--rescue)" };
+const STATUS_TXT = { available: "At station", en_route: "On the way", on_scene: "On scene", returning: "Returning" };
+function renderCrew() {
+  if (document.body.dataset.role !== "crew") return;
+  if (!S.crewSel || !S.vById.get(S.crewSel)) S.crewSel = (S.vehicles.find(v => v.status === "en_route") || S.vehicles[0]).id;
+  setHTML($("#crewPick"), S.vehicles.map(v => `<button class="chip" data-crew="${v.id}" aria-pressed="${v.id === S.crewSel}">
+    <i style="background:${VCOL[v.type]};border:1px solid var(--ink)"></i>${v.id}<small class="hint" style="font-weight:500">${STATUS_TXT[v.status]}</small></button>`).join(""));
+  const v = S.vById.get(S.crewSel), inc = v.inc ? S.byId.get(v.inc) : null;
+  const head = `<div class="bhead">${VICON[v.type]}<div><b>${v.id}</b><span class="hint">${VNAME[v.type][0].toUpperCase() + VNAME[v.type].slice(1)}, ${v.station} station</span></div>
+    <span class="pill ${v.status === "en_route" ? "go" : v.status === "on_scene" ? "scene" : ""}">${STATUS_TXT[v.status]}</span></div>`;
+  if (!inc) {
+    const back = v.status === "returning" ? `Returning to ${v.station} station, about ${Math.max(1, Math.round(remainingTime(v)))} min.` : `Waiting at ${v.station} station.`;
+    setHTML($("#crewBrief"), `<div class="brief">${head}<div class="idle">${back} Your next job will appear here the moment you are sent.</div></div>`);
+    return;
+  }
+  const eta = v.status === "en_route" ? Math.max(1, Math.round(remainingTime(v))) : null;
+  const others = Object.values(inc.assigned).flatMap(x => [...x]).filter(id => id !== v.id && inc.active.has(id));
+  const watch = [...inc.contradictions.slice(-3)];
+  if (S.bridgeClosed) watch.unshift("Main Bridge is closed: your route already avoids it.");
+  if (S.traffic) watch.unshift("Heavy traffic in the north-west: roads there are 3× slower.");
+  const note = inc.notes.length ? inc.notes[inc.notes.length - 1].text : "";
+  setHTML($("#crewBrief"), `<div class="brief">${head}
+    <div class="dest"><div><small>${v.status === "on_scene" ? "You are at" : "Go to"}</small><b>${esc(inc.place || "location pending")}</b><small>${inc.id}, ${TYPE_NAME[inc.type].toLowerCase()}</small></div>
+      <div class="big">${eta != null ? eta : v.status === "on_scene" ? Math.max(0, v.sceneUntil - S.now) : "–"}<small>${eta != null ? "min to arrive" : "min left on scene"}</small></div></div>
+    <dl class="facts"><dt>Severity</dt><dd><span style="color:${SEVCOL(inc.severity)}">●</span> ${inc.severity} of 5</dd>
+      <dt>People</dt><dd>about ${inc.people}</dd><dt>Callers</dt><dd>${inc.calls.length}</dd>
+      <dt>Also sent</dt><dd>${others.join(", ") || "only you so far"}</dd>
+      ${note ? `<dt>Dispatcher</dt><dd>${esc(note)}</dd>` : ""}</dl>
+    <div><h3>What callers said</h3><ul class="quotes">${inc.calls.slice(-3).reverse().map(c => `<li>“${esc(c.text)}”</li>`).join("")}</ul></div>
+    ${watch.length ? `<div><h3>Watch out</h3><ul class="watch">${watch.map(w => `<li>${esc(w)}</li>`).join("")}</ul></div>` : ""}
+  </div>`);
+}
+document.addEventListener("click", e => { const c = e.target.closest("[data-crew]"); if (c) { S.crewSel = c.dataset.crew; renderCrew(); renderMap(); } });
+
+/* ================================================================
+   PLAN TARGETS, LIVE (section 2 of the project plan)
+   ================================================================ */
+function renderTargets() {
+  const tile = (label, value, target, state, note = "") => `<div class="tile"><span class="tl">${label}</span><span class="tv">${value}</span>
+    <span class="tt">Target: ${target}${note ? `. ${note}` : ""}</span><span class="st ${state}">${state === "met" ? "On target" : state === "miss" ? "Below target" : "No data yet"}</span></div>`;
+  const rt = [...S.reportTimes].sort((a, b) => a - b), med = rt.length ? rt[Math.floor((rt.length - 1) / 2)] : null;
+  const unk = S.incidents.filter(i => i.mine && i.wasUnknown), fixed = unk.filter(i => i.locFixedBy === "caller" && i.locFixedMin <= 2);
+  const sev = S.incidents.filter(i => i.severity >= 4 && i.firstArrival != null && !i.mergedInto);
+  const sevOk = sev.filter(i => i.firstArrival - i.created <= targetFor(i));
+  const cit = S.feedback.filter(f => f.source === "citizen"), pool = cit.length ? cit : S.feedback;
+  const avg = pool.length ? pool.reduce((a, f) => a + f.rating, 0) / pool.length : null;
+  setHTML($("#targets"), [
+    tile("Time to report", med == null ? "–" : `${Math.round(med)} s`, "under 60 s", med == null ? "na" : med < 60 ? "met" : "miss", rt.length ? `median of ${rt.length}` : ""),
+    tile("Callers who fixed their location", unk.length ? `${fixed.length}/${unk.length}` : "–", "8 in 10, within 2 min", unk.length ? (fixed.length / unk.length >= .8 ? "met" : "miss") : "na"),
+    tile("Severe incidents reached in time", sev.length ? `${Math.round(100 * sevOk.length / sev.length)}%` : "–", `within ${CONFIG.targets.severe} min`, sev.length ? (sevOk.length / sev.length >= .8 ? "met" : "miss") : "na"),
+    tile("Citizen rating", avg == null ? "–" : `${avg.toFixed(1)}★`, "4 of 5 or better", avg == null ? "na" : avg >= 4 ? "met" : "miss", pool.length ? `${pool.length} rating${pool.length > 1 ? "s" : ""}${cit.length ? "" : ", simulated"}` : ""),
+    tile("Dispatcher overrides", String(S.overrides), "every change logged with a reason", S.overrides ? "met" : "na"),
+  ].join(""));
+}
+
+/* ================================================================
+   ROLES: citizen, control room, field crew
+   ================================================================ */
+const ROLE_TABS = { citizen: ["report", "map"], control: ["map", "queue", "insights"], crew: ["crew", "map"] };
+function setRole(role, tab) {
+  if (!ROLE_TABS[role]) role = "citizen";
+  document.body.dataset.role = role;
+  document.querySelectorAll(".roles button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.role === role)));
+  document.querySelectorAll("main>section").forEach(sct => sct.classList.toggle("in-role", ROLE_TABS[role].includes(sct.dataset.tab)));
+  document.querySelectorAll(".tabs button").forEach(b => { b.hidden = !ROLE_TABS[role].includes(b.dataset.go); });
+  showTab(tab && ROLE_TABS[role].includes(tab) ? tab : ROLE_TABS[role][0]);
+  try { localStorage.setItem("sahayak112_role", role); } catch (e) {}
+  if (S) { if (layers.routes) layers.routes.__sig = null; render(); }
+}
+document.querySelectorAll(".roles button").forEach(b => b.addEventListener("click", () => setRole(b.dataset.role)));
+
+/* ================================================================
+   CONTROLS, TABS, TOAST
+   ================================================================ */
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("on"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("on"), 2800); }
+$("#playBtn").addEventListener("click", () => {
+  running = !running; setTimer();
+  $("#playBtn").setAttribute("aria-pressed", String(!running));
+  $("#playBtn span").textContent = running ? "Pause" : "Resume";
+  $("#playBtn svg").innerHTML = running ? '<rect x="2" y="1" width="3.5" height="12" rx="1" fill="currentColor"/><rect x="8.5" y="1" width="3.5" height="12" rx="1" fill="currentColor"/>' : '<path d="M3 1.5v11l9-5.5z" fill="currentColor"/>';
+  $("#clockSub").textContent = running ? "since start" : "paused";
+});
+document.querySelectorAll("[data-speed]").forEach(b => b.addEventListener("click", () => {
+  speed = +b.dataset.speed; document.querySelectorAll("[data-speed]").forEach(x => x.setAttribute("aria-pressed", String(x === b))); setTimer();
+}));
+$("#drillBtn").addEventListener("click", () => { startDrill(); render(); });
+$("#resetBtn").addEventListener("click", () => {
+  S = freshState(); buildMap(); lastStage = -1;
+  $("#bridgeBtn").setAttribute("aria-pressed", "false"); $("#trafficBtn").setAttribute("aria-pressed", "false");
+  $("#track").classList.remove("on"); $("#reportForm").hidden = false; render(); toast("City reset: all vehicles back at their stations");
+});
+$("#bridgeBtn").addEventListener("click", e => { const on = e.currentTarget.getAttribute("aria-pressed") !== "true"; e.currentTarget.setAttribute("aria-pressed", String(on)); applyRoadEvent("bridge", on); render(); });
+$("#trafficBtn").addEventListener("click", e => { const on = e.currentTarget.getAttribute("aria-pressed") !== "true"; e.currentTarget.setAttribute("aria-pressed", String(on)); applyRoadEvent("traffic", on); render(); });
+$("#labelsBtn").addEventListener("click", e => { const on = e.currentTarget.getAttribute("aria-pressed") !== "true"; e.currentTarget.setAttribute("aria-pressed", String(on)); layers.labels.style.display = on ? "" : "none"; });
+
+function showTab(name) {
+  document.querySelectorAll("main>section").forEach(s => s.classList.toggle("show", s.dataset.tab === name));
+  document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.go === name)));
+}
+document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => showTab(b.dataset.go)));
+const h = (location.hash || "").slice(1);
+const OLD_TAB_ROLE = { report: "citizen", map: "control", queue: "control", insights: "control", crew: "crew" };
+let startRole = ROLE_TABS[h] ? h : OLD_TAB_ROLE[h];
+if (!startRole) { try { startRole = localStorage.getItem("sahayak112_role"); } catch (e) {} }
+
+/* ================================================================
+   START
+   ================================================================ */
+S = freshState();
+buildMap();
+if (PREFILL && PREFILL.text) {
+  $("#reportText").value = PREFILL.text;
+  if (PREFILL.lang && [...$("#langSel").options].some(o => o.value === PREFILL.lang)) $("#langSel").value = PREFILL.lang;
+  usedVoice = true;
+  voiceMsg(`Your recording was turned into text${PREFILL.engine ? " by " + PREFILL.engine : ""}. Check the words, then send.`);
+}
+setRole(startRole || "citizen", OLD_TAB_ROLE[h] ? h : undefined);
+setTimer();
+})();
+</script>
+</body>
+</html>
