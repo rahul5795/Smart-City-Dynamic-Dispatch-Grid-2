@@ -336,7 +336,8 @@ def show_triage_card(rec: dict[str, Any]) -> None:
         top = st.columns([3, 2])
         top[0].markdown(f"### {rec['Call ID']}: {rec['incident_type']}")
         if str(rec.get("Source", "")).startswith("Voice"):
-            top[0].caption(f"🎙️ Reported by voice, written by {rec['Source'][7:-1]}")
+            top[0].caption(f"🎙️ Reported by voice, written by {rec.get('Voice engine') or 'speech recognition'}"
+                           + (", then edited by hand" if "edited" in rec["Source"] else ""))
         method = rec.get("triage_method", "")
         top[1].markdown(
             f"<div style='text-align:right;margin-top:10px'><span style='background:{'#1F8A5B' if method == 'Groq AI' else '#5B6B7A'};"
@@ -366,8 +367,11 @@ def show_triage_card(rec: dict[str, Any]) -> None:
                        "it will not be dispatched or drawn on the map until then.")
         if method != "Groq AI":
             st.caption("Rule-based triage: add a Groq API key in the sidebar for AI reading of messy or unclear calls.")
+        if rec.get("Recording"):
+            st.markdown("🎧 **Caller’s recording**")
+            st.audio(rec["Recording"], format="audio/wav")
         with st.expander("Raw data (for developers)"):
-            st.json({k: v for k, v in rec.items() if k != "Call text"})
+            st.json({k: v for k, v in rec.items() if k not in ("Call text", "Recording")})
 
 # ----------------------- Speech to text (works even when browser voice typing does not) -----------------------
 VOICE_LANGS = {"English (India)": "en-IN", "हिन्दी (Hindi)": "hi-IN"}
@@ -420,7 +424,8 @@ def voice_recorder(key: str, label: str, api_key: str, whisper_model: str) -> di
         with st.spinner("Turning your voice into text…"):
             try:
                 text, engine = transcribe_audio(data, VOICE_LANGS[lang_name], api_key, whisper_model)
-                st.session_state[f"{key}_result"] = {"text": text, "lang": VOICE_LANGS[lang_name], "engine": engine, "new": True}
+                st.session_state[f"{key}_result"] = {"text": text, "lang": VOICE_LANGS[lang_name], "engine": engine, "new": True,
+                                                     "audio": data}
             except RuntimeError as exc:
                 st.session_state[f"{key}_result"] = None
                 st.error(f"Could not turn the recording into text: {exc}. You can record again or type instead.")
@@ -475,6 +480,8 @@ with tab0:
             heard = voice_recorder("sah", "Record your emergency report", groq_key, whisper_model)
             if heard:
                 st.success(f"Heard ({heard['engine']}): “{heard['text']}”")
+                st.markdown("🎧 **Listen to what you recorded**")
+                st.audio(heard["audio"], format="audio/wav")
                 st.caption("The app below has reloaded with these words in the report box. A new recording replaces them.")
         prefill = st.session_state.get("sah_result")
         html = page
@@ -499,20 +506,26 @@ with tab1:
         st.session_state.last_sample = sample
         st.session_state.call_text = sample
         st.session_state.call_source = "Sample"
+        st.session_state.call_audio = None
     with st.expander("🎙️ Speak your complaint instead of typing", expanded=True):
         auto = st.checkbox("Triage automatically as soon as my words are written", value=True, key="tri_auto")
         spoken = voice_recorder("tri", "Record your complaint", groq_key, whisper_model)
         if spoken and spoken.get("new"):
             st.session_state.call_text = spoken["text"]
-            st.session_state.call_source = f"Voice ({spoken['engine']})"
+            st.session_state.call_source = "Voice"
+            st.session_state.call_engine = spoken["engine"]
+            st.session_state.call_audio = spoken["audio"]
             st.session_state.auto_triage = auto
             spoken["new"] = False
         if spoken:
             st.success(f"Heard ({spoken['engine']}): “{spoken['text']}”. It is now in the transcript box.")
+            st.markdown("🎧 **Listen to what you recorded**")
+            st.audio(spoken["audio"], format="audio/wav")
             if spoken["lang"] == "hi-IN" and not groq_key:
                 st.caption("Keyword rules understand English best. Add a Groq key for AI triage of Hindi calls.")
     call_text = st.text_area("Call transcript", key="call_text", height=110,
-                             on_change=lambda: st.session_state.update(call_source="Typed"))
+                             on_change=lambda: st.session_state.update(
+                                 call_source="Voice, edited" if str(st.session_state.get("call_source", "")).startswith("Voice") else "Typed"))
     clicked = st.button("Triage call", type="primary")
     if clicked or st.session_state.pop("auto_triage", False):
         if not call_text.strip():
@@ -534,6 +547,8 @@ with tab1:
                 "Call ID": f"CALL-{len(st.session_state.calls) + 1:03d}",
                 "Call text": call_text.strip(),
                 "Source": st.session_state.get("call_source", "Typed"),
+                "Voice engine": st.session_state.get("call_engine") if str(st.session_state.get("call_source", "")).startswith("Voice") else None,
+                "Recording": st.session_state.get("call_audio") if str(st.session_state.get("call_source", "")).startswith("Voice") else None,
                 **triage,
             }
             st.session_state.calls.append(record)
@@ -552,6 +567,13 @@ with tab1:
             "triage_method": "Triage method", "confidence": "Confidence"
         })
         st.dataframe(hist[[c for c in ["Call ID", "Source", "Incident type", "Severity", "Location", "Emergency?", "Triage method", "Confidence"] if c in hist.columns]], width="stretch")
+        voiced = [c for c in st.session_state.calls if c.get("Recording")]
+        if voiced:
+            with st.expander(f"🎧 Listen to voice complaints ({len(voiced)})"):
+                for c in reversed(voiced):
+                    st.markdown(f"**{c['Call ID']}**: {c['incident_type']}, severity {c['severity']}, "
+                                f"{c.get('location') or 'location unknown'}. “{c['Call text']}”")
+                    st.audio(c["Recording"], format="audio/wav")
 
 with tab2:
     st.subheader("Prioritized incident and dispatch board")
