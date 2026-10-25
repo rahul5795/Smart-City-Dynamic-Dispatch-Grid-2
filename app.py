@@ -364,8 +364,8 @@ def show_triage_card(rec: dict[str, Any]) -> None:
         fact(c[1], "Location", rec.get("location") or "Unknown", muted=not rec.get("location"))
         fact(c[2], "People", rec.get("people") or "Not stated", muted=not rec.get("people"))
         conf = rec.get("confidence")
-        fact(c[3], "Confidence", (f"{conf:.0%} (calibrated model)" if "ML" in method else f"{conf:.0%} (AI estimate)")
-             if isinstance(conf, (int, float)) else "Not measured",
+        fact(c[3], "Confidence" + (" (model)" if "ML" in method else " (AI estimate)" if isinstance(conf, (int, float)) else ""),
+             f"{conf:.0%}" if isinstance(conf, (int, float)) else "Not measured",
              muted=not isinstance(conf, (int, float)))
         st.markdown(f"**{SEVERITY_GUIDE.get(sev, '')}.** Why: {rec.get('severity_reason', 'not given')}.")
         st.markdown(f"**Summary:** {rec.get('summary', '')}")
@@ -484,12 +484,18 @@ def apply_model(triage: dict, call_text: str, model: dict) -> dict:
     return out
 
 
+@st.cache_data(show_spinner=False, max_entries=500, ttl=3600)
+def cached_groq_triage(call_text: str, api_key: str, model: str) -> dict:
+    """Same text + same model = same answer: re-triaging or batch duplicates cost no extra API calls."""
+    return groq_triage(call_text, api_key, model)
+
+
 def run_triage(call_text: str) -> tuple[dict, list[tuple[str, str]]]:
     """Groq AI if switched on and configured, otherwise rules (+ the learned model). Returns (triage, messages)."""
     msgs, triage = [], None
     if use_groq and groq_key:
         try:
-            triage = groq_triage(call_text, groq_key, groq_model)
+            triage = dict(cached_groq_triage(call_text.strip(), groq_key, groq_model))
             triage["triage_method"] = "Groq AI"
         except Exception as exc:
             msgs.append(("warning", f"Groq triage failed; using rule-based fallback. Details: {exc}"))
@@ -501,6 +507,108 @@ def run_triage(call_text: str) -> tuple[dict, list[tuple[str, str]]]:
         if use_model and triage_model is not None:
             triage = apply_model(triage, call_text, triage_model)
     return triage, msgs
+
+
+# ----------------------- Triage helpers: duplicates, records, one-click dispatch -----------------------
+COMPATIBLE_TYPES = {"Fire": {"Fire", "Medical"}, "Rescue": {"Rescue", "Medical"}, "Medical": {"Medical", "Fire", "Rescue"}}
+SAMPLE_CALLS = [
+    "Caller reports a serious road accident with two injured people near Central Hospital.",
+    "Smoke and flames are coming from a building near the Shopping Mall.",
+    "Second caller: big fire at the shopping mall, people are shouting, the smoke is getting worse.",
+    "A person is unconscious and not breathing near Railway Station.",
+    "Several people are trapped after a building collapse in the Industrial Area.",
+    "Water is rising fast near the river bank, an old man is stuck on the roof.",
+    "My mother fell in the kitchen and is bleeding badly, please hurry.",
+    "Strong gas smell near the petrol pump, nobody hurt yet.",
+    "This is a prank call; there is no emergency.",
+]
+
+
+def _words(t: str) -> set[str]:
+    return set(re.findall(r"[a-z]{3,}", t.lower())) - {"the", "and", "near", "there", "are", "is", "please", "help", "caller"}
+
+
+def find_duplicate(rec: dict, calls: list[dict]) -> tuple[str | None, float]:
+    """Plan section 3.5: same place + compatible type + similar words = probably the same incident.
+    Lean towards keeping calls separate (section 3.7): without a shared landmark, never join."""
+    if not rec.get("is_emergency") or not rec.get("location"):
+        return None, 0.0
+    best, best_score = None, 0.0
+    a = _words(rec["Call text"])
+    for c in calls:
+        if c is rec or not c.get("is_emergency") or c.get("location") != rec["location"] or c.get("duplicate_of"):
+            continue
+        if rec["incident_type"] not in COMPATIBLE_TYPES.get(c.get("incident_type"), {c.get("incident_type")}):
+            continue
+        b = _words(c["Call text"])
+        text_sim = len(a & b) / len(a | b) if a | b else 0.0
+        score = 0.5 + 0.2 * (rec["incident_type"] == c["incident_type"]) + 0.3 * text_sim
+        if score >= 0.6 and score > best_score:
+            best, best_score = c["Call ID"], score
+    return best, round(best_score, 2)
+
+
+def add_call(text: str, triage: dict, source: str, engine: str | None = None, audio: bytes | None = None) -> dict:
+    rec = {"Call ID": f"CALL-{len(st.session_state.calls) + 1:03d}", "Call text": text.strip(), "Source": source,
+           "Voice engine": engine, "Recording": audio, "Triaged at": time.strftime("%H:%M:%S"), **triage}
+    dup, score = find_duplicate(rec, st.session_state.calls)
+    if dup:
+        rec["duplicate_of"], rec["duplicate_score"] = dup, score
+        original = next(c for c in st.session_state.calls if c["Call ID"] == dup)
+        original["callers"] = original.get("callers", 1) + 1
+        if int(rec["severity"]) > int(original["severity"]):                 # a later caller can raise urgency
+            original["severity"] = int(rec["severity"])
+    st.session_state.calls.append(rec)
+    return rec
+
+
+def send_vehicle_now(rec: dict) -> tuple[bool, str]:
+    """One-click dispatch for one call, with the same rules as the dispatch board."""
+    target = rec
+    if rec.get("duplicate_of"):
+        target = next((c for c in st.session_state.calls if c["Call ID"] == rec["duplicate_of"]), rec)
+    if target.get("Help vehicle"):
+        return False, f"{target['Help vehicle']} is already on its way to {target['Call ID']}."
+    if not target.get("location"):
+        return False, "No location yet: call the reporter back first."
+    graph = add_closures(make_city_graph(), closure_rows, closure_cols)
+    available = [v for v in VEHICLES if v["Vehicle ID"] not in st.session_state.used_vehicle_ids]
+    vehicle, minutes = choose_vehicle(target["incident_type"], target["location"], graph, available)
+    if vehicle is None:
+        return False, "No suitable vehicle is free or reachable right now."
+    st.session_state.used_vehicle_ids.add(vehicle["Vehicle ID"])
+    target["Help vehicle"] = vehicle["Vehicle ID"]
+    return True, f"{vehicle['Vehicle ID']} ({vehicle['Type'].lower()}) sent to {target['location']}, about {minutes:.0f} simulated minutes away."
+
+
+def call_actions(rec: dict) -> None:
+    """What the dispatcher can do next with the call that was just triaged."""
+    if rec.get("duplicate_of"):
+        st.info(f"🔁 Probably the same incident as **{rec['duplicate_of']}** (same place, compatible type, "
+                f"similarity {rec['duplicate_score']:.0%}). It was joined to it, so no extra vehicle is needed.")
+    if not rec.get("is_emergency"):
+        return
+    a, b = st.columns([1, 2])
+    target_has = rec.get("Help vehicle") or (rec.get("duplicate_of") and next(
+        (c.get("Help vehicle") for c in st.session_state.calls if c["Call ID"] == rec["duplicate_of"]), None))
+    if a.button("🚑 Send vehicle now", key=f"send_{rec['Call ID']}", type="primary",
+                disabled=not rec.get("location") or bool(target_has)):
+        ok, msg = send_vehicle_now(rec)
+        (st.success if ok else st.warning)(msg)
+    elif target_has:
+        b.markdown(f"✅ **{target_has}** is on its way.")
+    elif not rec.get("location"):
+        b.caption("Set the location after a call-back to enable dispatch.")
+
+
+def source_of(text: str, sample: str | None) -> tuple[str, str | None, bytes | None]:
+    """Where the transcript came from, decided when it is triaged (forms cannot use change callbacks)."""
+    vtext, vaudio = st.session_state.get("voice_text"), st.session_state.get("call_audio")
+    if vaudio and vtext:
+        return ("Voice" if text.strip() == vtext.strip() else "Voice, edited"), st.session_state.get("call_engine"), vaudio
+    if sample and text.strip() == sample.strip():
+        return "Sample", None, None
+    return "Typed", None, None
 
 
 # ----------------------- Emergency Help (native citizen page) -----------------------
@@ -761,9 +869,10 @@ with tab_help:
                 call_id = f"CALL-{len(st.session_state.calls) + 1:03d}"
                 ref = f"HELP-{len(st.session_state.help_reports) + 1:03d}"
                 voiced = bool(h_voice) and (h_text or "").strip() == h_voice.get("text", "")
-                st.session_state.calls.append({"Call ID": call_id, "Call text": report_text, "Source": "Emergency Help",
-                                               "Voice engine": h_voice["engine"] if voiced else None,
-                                               "Recording": h_voice["audio"] if voiced else None, "help_ref": ref, **triage})
+                rec_ = add_call(report_text, triage, "Emergency Help", h_voice["engine"] if voiced else None,
+                                h_voice["audio"] if voiced else None)
+                rec_["help_ref"] = ref
+                call_id = rec_["Call ID"]
                 rep_ = {"ref": ref, "call_id": call_id, "created": time.time(), "type": triage["incident_type"],
                         "severity": int(triage["severity"]), "location": triage.get("location"), "people": triage.get("people"),
                         "reason": triage.get("severity_reason", ""), "method": triage.get("triage_method", ""),
@@ -910,72 +1019,142 @@ with tab0:
                            page.encode("utf-8"), file_name="sahayak112.html", mime="text/html")
 
 with tab1:
-    st.subheader("Enter an incoming call")
-    sample = st.selectbox("Try a sample call", [
-        "Caller reports a serious road accident with two injured people near Central Hospital.",
-        "Smoke and flames are coming from a building near the Shopping Mall.",
-        "A person is unconscious and not breathing near Railway Station.",
-        "Several people are trapped after a building collapse in the Industrial Area.",
-        "This is a prank call; there is no emergency.",
-        "A bus crashed near River Bridge and people need help.",
-    ])
-    if st.session_state.get("last_sample") != sample:          # picking a sample replaces the transcript
-        st.session_state.last_sample = sample
-        st.session_state.call_text = sample
-        st.session_state.call_source = "Sample"
-        st.session_state.call_audio = None
-    with st.expander("🎙️ Speak your complaint instead of typing", expanded=True):
-        auto = st.checkbox("Triage automatically as soon as my words are written", value=True, key="tri_auto")
-        spoken = voice_recorder("tri", "Record your complaint", groq_key, whisper_model)
-        if spoken and spoken.get("new"):
-            st.session_state.call_text = spoken["text"]
-            st.session_state.call_source = "Voice"
-            st.session_state.call_engine = spoken["engine"]
-            st.session_state.call_audio = spoken["audio"]
-            st.session_state.auto_triage = auto
-            spoken["new"] = False
-        if spoken:
-            st.success(f"Heard ({spoken['engine']}): “{spoken['text']}”. It is now in the transcript box.")
-            st.markdown("🎧 **Listen to what you recorded**")
-            st.audio(spoken["audio"], format="audio/wav")
-            if spoken["lang"] == "hi-IN" and not groq_key:
-                st.caption("Keyword rules understand English best. Add a Groq key for AI triage of Hindi calls.")
-    call_text = st.text_area("Call transcript", key="call_text", height=110,
-                             on_change=lambda: st.session_state.update(
-                                 call_source="Voice, edited" if str(st.session_state.get("call_source", "")).startswith("Voice") else "Typed"))
-    clicked = st.button("Triage call", type="primary")
-    if clicked or st.session_state.pop("auto_triage", False):
-        if not call_text.strip():
-            st.error("Enter a call transcript first.")
-        else:
-            triage, msgs = run_triage(call_text)
-            for kind_, m_ in msgs:
-                getattr(st, kind_)(m_)
-            record = {
-                "Call ID": f"CALL-{len(st.session_state.calls) + 1:03d}",
-                "Call text": call_text.strip(),
-                "Source": st.session_state.get("call_source", "Typed"),
-                "Voice engine": st.session_state.get("call_engine") if str(st.session_state.get("call_source", "")).startswith("Voice") else None,
-                "Recording": st.session_state.get("call_audio") if str(st.session_state.get("call_source", "")).startswith("Voice") else None,
-                **triage,
-            }
-            st.session_state.calls.append(record)
-            st.success("Call triaged.")
-    if st.session_state.calls:
-        show_triage_card(st.session_state.calls[-1])          # stays visible after other clicks
+    st.subheader("Triage incoming calls")
+    one_tab, many_tab = st.tabs(["📞 One call", "📋 Many calls at once"])
+
+    with one_tab:
+        in_col, out_col = st.columns([1, 1.15], gap="large")
+        with in_col:
+            sample = st.selectbox("Try a sample call", SAMPLE_CALLS, index=None, key="sample_pick",
+                                  placeholder="Choose a sample, or type or speak below")
+            if sample and st.session_state.get("last_sample") != sample:      # picking a sample replaces the transcript
+                st.session_state.last_sample = sample
+                st.session_state.call_text = sample
+                st.session_state.call_audio = st.session_state.voice_text = None
+            with st.expander("🎙️ Speak your complaint instead of typing", expanded=False):
+                auto = st.checkbox("Triage automatically as soon as my words are written", value=True, key="tri_auto")
+                spoken = voice_recorder("tri", "Record your complaint", groq_key, whisper_model)
+                if spoken and spoken.get("new"):
+                    st.session_state.call_text = spoken["text"]
+                    st.session_state.voice_text = spoken["text"]
+                    st.session_state.call_engine = spoken["engine"]
+                    st.session_state.call_audio = spoken["audio"]
+                    spoken["new"] = False
+                    if auto:
+                        st.session_state.auto_triage = True
+                if spoken:
+                    st.success(f"Heard ({spoken['engine']}): “{spoken['text']}”")
+                    st.audio(spoken["audio"], format="audio/wav")
+                    if spoken["lang"] == "hi-IN" and not groq_key:
+                        st.caption("Keyword rules understand English best. Add a Groq key for AI triage of Hindi calls.")
+            with st.form("triage_form", border=False):
+                call_text = st.text_area("Call transcript", key="call_text", height=130,
+                                         placeholder="Type what the caller says…", help="Press Ctrl+Enter (⌘+Enter on Mac) to triage.")
+                f1, f2 = st.columns([1, 1])
+                submitted = f1.form_submit_button("Triage call", type="primary", width="stretch")
+                f2.form_submit_button("Clear", width="stretch", on_click=lambda: st.session_state.update(
+                    call_text="", call_audio=None, voice_text=None, last_sample=None, sample_pick=None))
+            st.caption("Tip: Ctrl+Enter triages straight from the text box.")
+        with out_col:
+            run_now = submitted or st.session_state.pop("auto_triage", False)
+            if run_now:
+                text = (st.session_state.get("call_text") or "").strip()
+                if not text:
+                    st.error("Type, speak or choose a call first.")
+                else:
+                    with st.spinner("Triaging…"):
+                        t0 = time.perf_counter()
+                        triage, msgs = run_triage(text)
+                        took = (time.perf_counter() - t0) * 1000
+                    for kind_, m_ in msgs:
+                        getattr(st, kind_)(m_)
+                    src, engine, audio = source_of(text, st.session_state.get("last_sample"))
+                    rec = add_call(text, triage, src, engine, audio)
+                    rec["Triage ms"] = round(took)
+                    st.session_state.last_call_id = rec["Call ID"]
+            last = next((c for c in st.session_state.calls if c["Call ID"] == st.session_state.get("last_call_id")), None)
+            if last:
+                show_triage_card(last)
+                call_actions(last)
+                st.caption(f"Triaged in {last.get('Triage ms', 0)} ms.")
+            else:
+                with st.container(border=True):
+                    st.markdown("#### Result")
+                    st.info("Choose a sample, or type or speak a call, then press **Triage call**. The result appears here.")
+
+    with many_tab:
+        st.caption("For a call burst: paste one call per line, or upload a CSV with a `text` column. Up to 200 calls.")
+        b1, b2 = st.columns([1.3, 1])
+        batch_text = b1.text_area("Calls, one per line", height=180, key="batch_text",
+                                  placeholder="fire near the shopping mall, people inside\nmy father fell near the old temple\n…")
+        batch_file = b2.file_uploader("…or a CSV file", type=["csv", "txt"], key="batch_file")
+        add_hist = b2.checkbox("Add to the triage history and dispatch board", value=True, key="batch_add")
+        if st.button("Triage all", type="primary", key="batch_go"):
+            lines = [ln.strip() for ln in (batch_text or "").splitlines() if ln.strip()]
+            if batch_file is not None:
+                try:
+                    df_in = pd.read_csv(batch_file)
+                    col = next((c for c in df_in.columns if str(c).lower() in ("text", "call", "call_text", "transcript")), df_in.columns[0])
+                    lines += [str(x).strip() for x in df_in[col].dropna() if str(x).strip()]
+                except Exception as exc:
+                    st.error(f"Could not read the file: {exc}")
+            lines = lines[:200]
+            if not lines:
+                st.warning("Paste some calls or upload a file first.")
+            else:
+                bar, out_rows, t0 = st.progress(0.0, text="Triaging…"), [], time.perf_counter()
+                for i, ln in enumerate(lines):
+                    tri, _ = run_triage(ln)
+                    if add_hist:
+                        r_ = add_call(ln, tri, "Batch")
+                    else:
+                        r_ = {"Call ID": f"B-{i + 1:03d}", "Call text": ln, **tri}
+                    out_rows.append(r_)
+                    bar.progress((i + 1) / len(lines), text=f"Triaging… {i + 1}/{len(lines)}")
+                bar.empty()
+                secs = time.perf_counter() - t0
+                st.session_state.batch_result = pd.DataFrame([{
+                    "Call ID": r_["Call ID"], "Emergency": r_.get("incident_type"), "Severity": int(r_.get("severity", 0)),
+                    "Location": r_.get("location") or "Unknown", "Duplicate of": r_.get("duplicate_of") or "",
+                    "Needs review": bool(r_.get("needs_review")) or not r_.get("location"),
+                    "Confidence": r_.get("confidence"), "Call": r_["Call text"]} for r_ in out_rows])
+                st.session_state.batch_note = f"{len(lines)} calls triaged in {secs:.1f} s ({1000 * secs / len(lines):.0f} ms per call)."
+        res = st.session_state.get("batch_result")
+        if res is not None and len(res):
+            st.success(st.session_state.get("batch_note", ""))
+            em = res[res["Emergency"] != "Noise / prank"]
+            k1, k2, k3, k4, k5 = st.columns(5)
+            k1.metric("Emergencies", len(em)); k2.metric("Severe (4-5)", int((em["Severity"] >= 4).sum()))
+            k3.metric("Duplicates joined", int((res["Duplicate of"] != "").sum()))
+            k4.metric("Unknown location", int((em["Location"] == "Unknown").sum())); k5.metric("Pranks filtered", int((res["Emergency"] == "Noise / prank").sum()))
+            st.dataframe(res.sort_values(["Severity", "Call ID"], ascending=[False, True]), hide_index=True, width="stretch",
+                         column_config={"Severity": st.column_config.ProgressColumn("Severity", min_value=0, max_value=5, format="%d"),
+                                        "Confidence": st.column_config.NumberColumn("Confidence", format="percent"),
+                                        "Call": st.column_config.TextColumn("Call", width="large")})
+            st.download_button("Download results (CSV)", res.to_csv(index=False).encode("utf-8"), "triage_batch.csv", "text/csv")
+
     if st.session_state.calls:
         st.markdown("#### Triage history")
-        hist = pd.DataFrame(st.session_state.calls)
-        show_cols = ["Call ID", "incident_type", "severity", "location", "is_emergency", "triage_method", "confidence"]
-        hist["confidence"] = hist["confidence"].map(lambda v: f"{v:.0%}" if isinstance(v, (int, float)) and v == v else "Not measured")
-        hist["location"] = hist["location"].fillna("Unknown")
-        hist = hist.rename(columns={
-            "incident_type": "Incident type", "severity": "Severity",
-            "location": "Location", "is_emergency": "Emergency?",
-            "triage_method": "Triage method", "confidence": "Confidence"
-        })
-        st.dataframe(hist[[c for c in ["Call ID", "Source", "Incident type", "Severity", "Location", "Emergency?", "Triage method", "Confidence"] if c in hist.columns]], width="stretch")
-        voiced = [c for c in st.session_state.calls if c.get("Recording")]
+        calls_ = st.session_state.calls
+        em_ = [c for c in calls_ if c.get("is_emergency")]
+        h1, h2, h3, h4, h5 = st.columns(5)
+        h1.metric("Calls", len(calls_)); h2.metric("Severe (4-5)", sum(int(c.get("severity", 0)) >= 4 for c in em_))
+        h3.metric("Duplicates joined", sum(bool(c.get("duplicate_of")) for c in calls_))
+        h4.metric("Need review", sum(bool(c.get("needs_review")) or not c.get("location") for c in em_))
+        h5.metric("Vehicles sent", sum(bool(c.get("Help vehicle")) for c in calls_))
+        hist = pd.DataFrame([{"Call ID": c["Call ID"], "Time": c.get("Triaged at", ""), "Source": c.get("Source", ""),
+                              "Incident type": c.get("incident_type"), "Severity": int(c.get("severity", 0)),
+                              "Location": c.get("location") or "Unknown", "Duplicate of": c.get("duplicate_of") or "",
+                              "Vehicle": c.get("Help vehicle") or "", "Triage method": c.get("triage_method", ""),
+                              "Confidence": c.get("confidence") if isinstance(c.get("confidence"), (int, float)) else None,
+                              "Call": c["Call text"]} for c in reversed(calls_)])
+        st.dataframe(hist, hide_index=True, width="stretch",
+                     column_config={"Severity": st.column_config.ProgressColumn("Severity", min_value=0, max_value=5, format="%d"),
+                                    "Confidence": st.column_config.NumberColumn("Confidence", format="percent", help="Empty = not measured (keyword rules only)"),
+                                    "Call": st.column_config.TextColumn("Call", width="large")})
+        d1, d2 = st.columns([1, 4])
+        d1.download_button("Download history (CSV)", hist.to_csv(index=False).encode("utf-8"), "triage_history.csv", "text/csv")
+        voiced = [c for c in calls_ if c.get("Recording")]
         if voiced:
             with st.expander(f"🎧 Listen to voice complaints ({len(voiced)})"):
                 for c in reversed(voiced):
@@ -985,7 +1164,7 @@ with tab1:
 
 with tab2:
     st.subheader("Prioritized incident and dispatch board")
-    emergency_calls = [c for c in st.session_state.calls if c.get("is_emergency")]
+    emergency_calls = [c for c in st.session_state.calls if c.get("is_emergency") and not c.get("duplicate_of")]
     # A simple duplicate grouping by exact normalized location + incident type.
     grouped = {}
     for call in emergency_calls:
@@ -996,13 +1175,13 @@ with tab2:
                 "Location": call.get("location"),
                 "Incident type": call.get("incident_type"),
                 "Severity": int(call.get("severity", 3)),
-                "Calls": 1,
+                "Calls": call.get("callers", 1),
                 "Summary": call.get("summary", ""),
                 "Call IDs": [call.get("Call ID")],
                 "Help vehicle": call.get("Help vehicle"),
             }
         else:
-            grouped[key]["Calls"] += 1
+            grouped[key]["Calls"] += call.get("callers", 1)
             grouped[key]["Severity"] = max(grouped[key]["Severity"], int(call.get("severity", 3)))
             grouped[key]["Call IDs"].append(call.get("Call ID"))
             grouped[key]["Help vehicle"] = grouped[key].get("Help vehicle") or call.get("Help vehicle")
